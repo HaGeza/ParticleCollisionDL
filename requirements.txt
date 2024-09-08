@@ -1,0 +1,5 @@
+kaggle
+torch
+matplotlib
+numpy
+pandas
