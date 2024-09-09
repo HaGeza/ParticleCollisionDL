@@ -1,5 +1,5 @@
-kaggle
-torch
-matplotlib
-numpy
-pandas
+ipykernel==6.29.5
+kaggle==1.6.17
+pip-chill==1.0.3
+seaborn==0.13.2
+torch==2.4.1
