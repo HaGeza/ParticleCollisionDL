@@ -1,6 +1,8 @@
 """Trivial example of what your main.py should look like."""
+
 import argparse
 from src.example import example_train
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -15,6 +17,7 @@ def main():
     args = vars(ap.parse_args())
     # Run example method
     example_train(args)
+
 
 if __name__ == "__main__":
     main()
