@@ -1,7 +1,7 @@
 def example_train(training_params):
     """
     Trivial example used in main.py argparse demo
-    
+
     Args:
         training_params:dict; Dictionary of training parameters
     """
