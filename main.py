@@ -3,8 +3,9 @@ from src.Modules.HitSetEncoder.HitSetEncoderEnum import HitSetEncoderEnum
 from src.Modules.HitSetSizeGenerator.HitSetSizeGeneratorEnum import HitSetSizeGeneratorEnum
 from src.Modules.HitSetGenerator.HitSetGeneratorEnum import HitSetGeneratorEnum
 
-from src.DataLoader.DataLoader import DataLoader
-from src.TimeStep.LayerTimeStep import LayerTimeStep
+from src.Data.CollisionEventLoader import DataLoader
+from src.Trainer.HSGMTrainer import Trainer
+from src.TimeStep.VLTimeStep import LayerTimeStep
 from src.TimeStep.DistanceTimeStep import DistanceTimeStep
 from src.Modules.HitSetEncoder.PointNetEncoder import PointNetEncoder
 from src.Modules.HitSetSizeGenerator.GaussianSizeGenerator import GaussianSizeGenerator
@@ -12,12 +13,13 @@ from src.Modules.HitSetGenerator.EquidistantSetGenerator import EquidistantSetGe
 from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel
 
 import argparse
+import os
 
 
 def main():
     ap = argparse.ArgumentParser()
 
-    ap.add_argument("-d", "--dataset", default="data/train_sample", help="path to input dataset")
+    ap.add_argument("-d", "--dataset", default="train_sample", help="path to input dataset")
     ap.add_argument("-e", "--epochs", default=100, help="number of epochs to train the model")
     ap.add_argument(
         "-t",
@@ -47,6 +49,9 @@ def main():
 
     args = ap.parse_args()
 
+    # Determine root directory
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+
     # Initialize time step
     if args.time_step == TimeStepEnum.LAYER:
         time_step = LayerTimeStep()
@@ -54,7 +59,7 @@ def main():
         time_step = DistanceTimeStep()
 
     # Initialize data loader
-    data_loader = DataLoader(args.dataset, time_step)
+    data_loader = DataLoader(os.path.join(root_dir, "data", args.dataset), time_step)
 
     # Initialize model
     if args.encoder == HitSetEncoderEnum.POINT_NET:
@@ -64,12 +69,13 @@ def main():
         size_generator = GaussianSizeGenerator()
 
     if args.set_generator == HitSetGeneratorEnum.EQUIDISTANT:
-        set_generator = EquidistantSetGenerator()
+        set_generator = EquidistantSetGenerator(time_step)
 
     model = HitSetGenerativeModel(encoder, size_generator, set_generator)
 
     # Train model
-    model.train(data_loader, epochs=args.epochs)
+    trainer = Trainer()
+    trainer.train(model, data_loader, args.epochs, os.path.join(root_dir, "models"))
 
 
 if __name__ == "__main__":
