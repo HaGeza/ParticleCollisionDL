@@ -1,22 +1,75 @@
-"""Trivial example of what your main.py should look like."""
+from src.TimeStep.TimeStepEnum import TimeStepEnum
+from src.Modules.HitSetEncoder.HitSetEncoderEnum import HitSetEncoderEnum
+from src.Modules.HitSetSizeGenerator.HitSetSizeGeneratorEnum import HitSetSizeGeneratorEnum
+from src.Modules.HitSetGenerator.HitSetGeneratorEnum import HitSetGeneratorEnum
+
+from src.DataLoader.DataLoader import DataLoader
+from src.TimeStep.LayerTimeStep import LayerTimeStep
+from src.TimeStep.DistanceTimeStep import DistanceTimeStep
+from src.Modules.HitSetEncoder.PointNetEncoder import PointNetEncoder
+from src.Modules.HitSetSizeGenerator.GaussianSizeGenerator import GaussianSizeGenerator
+from src.Modules.HitSetGenerator.EquidistantSetGenerator import EquidistantSetGenerator
+from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel
 
 import argparse
-from src.example import example_train
 
 
 def main():
     ap = argparse.ArgumentParser()
-    # Make arguments for number of epochs, optimizer, model, batch size, loss function, and model name
-    ap.add_argument("-n", "--n-epochs", required=False, help="Number of epochs to run for", type=int, default=25)
-    ap.add_argument("-o", "--optimizer", required=False, help="Optimizer to use", default="Adam")
-    ap.add_argument("-m", "--model", required=False, help="Model to use", default="UNet")
-    ap.add_argument("-bs", "--batch-size", required=False, help="Batch size to use", type=int, default=32)
-    ap.add_argument("-l", "--loss-fn", required=False, help="Loss function to use ", default="MSE")
-    ap.add_argument("-mn", "--model-name", required=False, help="Name for model", default="AR_UNet.pt")
 
-    args = vars(ap.parse_args())
-    # Run example method
-    example_train(args)
+    ap.add_argument("-d", "--dataset", default="data/train_sample", help="path to input dataset")
+    ap.add_argument("-e", "--epochs", default=100, help="number of epochs to train the model")
+    ap.add_argument(
+        "-t",
+        "--time_step",
+        default=TimeStepEnum.LAYER,
+        help="type of pseudo time step to use",
+        choices=[e.value for e in TimeStepEnum],
+    )
+    ap.add_argument(
+        "--encoder",
+        default=HitSetEncoderEnum.POINT_NET,
+        help="type of encoder to use",
+        choices=[e.value for e in HitSetEncoderEnum],
+    )
+    ap.add_argument(
+        "--size_generator",
+        default=HitSetSizeGeneratorEnum.GAUSSIAN,
+        help="type of hit set size generator to use",
+        choices=[e.value for e in HitSetSizeGeneratorEnum],
+    )
+    ap.add_argument(
+        "--set_generator",
+        default=HitSetGeneratorEnum.EQUIDISTANT,
+        help="type of hit set generator to use",
+        choices=[e.value for e in HitSetGeneratorEnum],
+    )
+
+    args = ap.parse_args()
+
+    # Initialize time step
+    if args.time_step == TimeStepEnum.LAYER:
+        time_step = LayerTimeStep()
+    elif args.time_step == TimeStepEnum.DISTANCE:
+        time_step = DistanceTimeStep()
+
+    # Initialize data loader
+    data_loader = DataLoader(args.dataset, time_step)
+
+    # Initialize model
+    if args.encoder == HitSetEncoderEnum.POINT_NET:
+        encoder = PointNetEncoder()
+
+    if args.size_generator == HitSetSizeGeneratorEnum.GAUSSIAN:
+        size_generator = GaussianSizeGenerator()
+
+    if args.set_generator == HitSetGeneratorEnum.EQUIDISTANT:
+        set_generator = EquidistantSetGenerator()
+
+    model = HitSetGenerativeModel(encoder, size_generator, set_generator)
+
+    # Train model
+    model.train(data_loader, epochs=args.epochs)
 
 
 if __name__ == "__main__":
