@@ -6,5 +6,5 @@ class TimeStepEnum(Enum):
     Enum class for different types of pseudo time steps
     """
 
-    LAYER = "layer"
+    VOLUME_LAYER = "volume_layer"
     DISTANCE = "distance"

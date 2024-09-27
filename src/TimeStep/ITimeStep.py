@@ -10,3 +10,12 @@ class ITimeStep:
         """
 
         raise NotImplementedError
+
+    def get_num_time_steps(self) -> int:
+        """
+        Get the number of pseudo time steps.
+
+        :return int: The number of pseudo time steps
+        """
+
+        raise NotImplementedError

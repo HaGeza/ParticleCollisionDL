@@ -14,3 +14,6 @@ class DistanceTimeStep(ITimeStep):
         hits["t"] = (hits["d"] / hits["d"].max() * self.steps).astype(int)
         hits[hits["t"] >= self.steps - 1] = self.steps - 2
         hits.drop(columns=["d"], inplace=True)
+
+    def get_num_time_steps(self) -> int:
+        return self.steps

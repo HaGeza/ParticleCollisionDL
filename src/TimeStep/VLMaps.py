@@ -53,7 +53,7 @@ LAYER_MAPS = [
 ]
 
 
-def get_volume_layer_mapper(map_index: int):
+def get_volume_layer_mapper(map_index: int) -> tuple[callable, int]:
     volume_layer_map = deepcopy(LAYER_MAPS[map_index])
 
     for volume_id, layer_dict in volume_layer_map.items():
@@ -71,4 +71,4 @@ def get_volume_layer_mapper(map_index: int):
         else:
             return max_t
 
-    return map_vlt
+    return map_vlt, max_t + 1

@@ -1,19 +1,17 @@
-from src.TimeStep.TimeStepEnum import TimeStepEnum
-from src.Modules.HitSetEncoder.HitSetEncoderEnum import HitSetEncoderEnum
-from src.Modules.HitSetSizeGenerator.HitSetSizeGeneratorEnum import HitSetSizeGeneratorEnum
-from src.Modules.HitSetGenerator.HitSetGeneratorEnum import HitSetGeneratorEnum
-
-from src.Data.CollisionEventLoader import DataLoader
-from src.Trainer.HSGMTrainer import Trainer
-from src.TimeStep.VLTimeStep import LayerTimeStep
-from src.TimeStep.DistanceTimeStep import DistanceTimeStep
-from src.Modules.HitSetEncoder.PointNetEncoder import PointNetEncoder
-from src.Modules.HitSetSizeGenerator.GaussianSizeGenerator import GaussianSizeGenerator
-from src.Modules.HitSetGenerator.EquidistantSetGenerator import EquidistantSetGenerator
-from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel
-
 import argparse
+import datetime
 import os
+import torch
+from torch.optim import Adam
+from torch.optim.lr_scheduler import StepLR
+
+from src.TimeStep import TimeStepEnum, VLTimeStep, DistanceTimeStep
+from src.Trainer import Trainer
+from src.Data import CollisionEventLoader
+from src.Modules.HitSetEncoder import HitSetEncoderEnum
+from src.Modules.HitSetSizeGenerator import HitSetSizeGeneratorEnum
+from src.Modules.HitSetGenerator import HitSetGeneratorEnum
+from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel
 
 
 def main():
@@ -24,7 +22,7 @@ def main():
     ap.add_argument(
         "-t",
         "--time_step",
-        default=TimeStepEnum.LAYER,
+        default=TimeStepEnum.VOLUME_LAYER,
         help="type of pseudo time step to use",
         choices=[e.value for e in TimeStepEnum],
     )
@@ -53,29 +51,40 @@ def main():
     root_dir = os.path.dirname(os.path.abspath(__file__))
 
     # Initialize time step
-    if args.time_step == TimeStepEnum.LAYER:
-        time_step = LayerTimeStep()
+    if args.time_step == TimeStepEnum.VOLUME_LAYER:
+        time_step = VLTimeStep()
     elif args.time_step == TimeStepEnum.DISTANCE:
         time_step = DistanceTimeStep()
 
+    # Determine device: cuda > mps > cpu
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    )
+
     # Initialize data loader
-    data_loader = DataLoader(os.path.join(root_dir, "data", args.dataset), time_step)
+    data_loader = CollisionEventLoader(os.path.join(root_dir, "data", args.dataset), time_step)
 
     # Initialize model
-    if args.encoder == HitSetEncoderEnum.POINT_NET:
-        encoder = PointNetEncoder()
+    model = HitSetGenerativeModel(args.encoder, args.size_generator, args.set_generator, time_step, device)
 
-    if args.size_generator == HitSetSizeGeneratorEnum.GAUSSIAN:
-        size_generator = GaussianSizeGenerator()
+    # Determine model name
+    date = datetime.datetime.now().strftime("%Y:%m:%d_%H:%M:%S")
+    model_name = (
+        f"{args.encoder.value}-{args.size_generator.value}-{args.set_generator.value}-{args.time_step.value}-{date}"
+    )
 
-    if args.set_generator == HitSetGeneratorEnum.EQUIDISTANT:
-        set_generator = EquidistantSetGenerator(time_step)
+    # Initialize optimizer
+    optimizer = Adam(model.parameters())
 
-    model = HitSetGenerativeModel(encoder, size_generator, set_generator)
+    # Initialize scheduler
+    scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
 
     # Train model
-    trainer = Trainer()
-    trainer.train(model, data_loader, args.epochs, os.path.join(root_dir, "models"))
+    trainer = Trainer(model, optimizer, scheduler, device)
+    trainer.train(data_loader, args.epochs)
+
+    # Save model
+    torch.save(model.state_dict(), os.path.join(root_dir, "models", f"{model_name}.pth"))
 
 
 if __name__ == "__main__":
