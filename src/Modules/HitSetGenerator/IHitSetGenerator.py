@@ -6,11 +6,11 @@ class IHitSetGenerator(nn.Module):
     Interface for hit set generators.
     """
 
-    def forward(self, z: Tensor, gt: Tensor, size: int) -> Tensor:
+    def forward(self, x: Tensor, gt: Tensor, gt_ind: Tensor, size: Tensor) -> Tensor:
         raise NotImplementedError
 
-    def calc_loss(self, pred: Tensor, gt: Tensor) -> Tensor:
+    def calc_loss(self, pred_tensor: Tensor, gt_tensor: Tensor, gt_ind: Tensor) -> Tensor:
         raise NotImplementedError
 
-    def generate(self, z: Tensor, size: int) -> Tensor:
+    def generate(self, x: Tensor, size: Tensor) -> Tensor:
         raise NotImplementedError

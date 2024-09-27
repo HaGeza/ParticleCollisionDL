@@ -19,6 +19,7 @@ def main():
 
     ap.add_argument("-d", "--dataset", default="train_sample", help="path to input dataset")
     ap.add_argument("-e", "--epochs", default=100, help="number of epochs to train the model")
+    ap.add_argument("-b", "--batch_size", default=2, help="batch size for training")
     ap.add_argument(
         "-t",
         "--time_step",
@@ -56,16 +57,19 @@ def main():
     elif args.time_step == TimeStepEnum.DISTANCE:
         time_step = DistanceTimeStep()
 
-    # Determine device: cuda > mps > cpu
-    device = torch.device(
-        "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-    )
+    # Determine device: cuda > (mps >) cpu
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # mps could be used with:
+    # "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    # but torch_scatter does not support mps
 
     # Initialize data loader
-    data_loader = CollisionEventLoader(os.path.join(root_dir, "data", args.dataset), time_step)
+    data_loader = CollisionEventLoader(
+        os.path.join(root_dir, "data", args.dataset), time_step, args.batch_size, device=device
+    )
 
     # Initialize model
-    model = HitSetGenerativeModel(args.encoder, args.size_generator, args.set_generator, time_step, device)
+    model = HitSetGenerativeModel(args.encoder, args.size_generator, args.set_generator, time_step, device=device)
 
     # Determine model name
     date = datetime.datetime.now().strftime("%Y:%m:%d_%H:%M:%S")

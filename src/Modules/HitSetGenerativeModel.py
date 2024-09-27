@@ -41,20 +41,26 @@ class HitSetGenerativeModel(nn.Module):
             if set_generator_type == HitSetGeneratorEnum.EQUIDISTANT:
                 self.set_generators.append(EquidistantSetGenerator(time_step, device=device))
 
-    def forward(self, x: Tensor, gt: Tensor, t: int) -> tuple[int, Tensor]:
-        x = self.encoders[t](x)
-        size = self.size_generators[t](x, gt)
-        return size, self.set_generators[t](x, gt, size)
+    def forward(self, x: Tensor, gt: Tensor, x_ind: Tensor, gt_ind: Tensor, t: int) -> tuple[int, Tensor]:
+        z = self.encoders[t](x, x_ind)
+        size = self.size_generators[t](z, gt, gt_ind)
+        return size, self.set_generators[t](size, z, gt, gt_ind)
 
     def calc_loss(
-        self, pred_size: Tensor, pred_tensor: Tensor, gt_tensor: Tensor, t: int, size_loss_ratio: float
+        self,
+        pred_size: Tensor,
+        pred_tensor: Tensor,
+        gt_size: Tensor,
+        gt_tensor: Tensor,
+        gt_ind: Tensor,
+        t: int,
+        size_loss_ratio: float = 0.25,
     ) -> Tensor:
-        gt_size = torch.tensor(gt_tensor.shape[0], device=self.device, dtype=torch.float32)
-        size_loss = F.mse_loss(pred_size, gt_size) * size_loss_ratio
-        set_loss = self.set_generators[t].calc_loss(pred_tensor, gt_tensor) * (1 - size_loss_ratio)
+        size_loss = F.mse_loss(pred_size, gt_size, reduction="mean") * size_loss_ratio
+        set_loss = self.set_generators[t].calc_loss(pred_tensor, gt_tensor, gt_ind) * (1 - size_loss_ratio)
         return size_loss + set_loss
 
-    def generate(self, x: Tensor, t: int) -> Tensor:
-        x = self.encoders[t](x)
-        size = self.size_generators[t].generate(x)
-        return self.set_generators[t].generate(x, size)
+    def generate(self, x: Tensor, x_ind: Tensor, t: int) -> Tensor:
+        x = self.encoders[t](x, x_ind)
+        size = self.size_generators[t].generate(x, x_ind)
+        return self.set_generators[t].generate(size, x, x_ind)

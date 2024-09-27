@@ -1,5 +1,6 @@
 import torch
-from torch import nn
+from torch import nn, Tensor
+from torch_scatter import scatter_max
 import torch.nn.functional as F
 
 from .IHitSetEncoder import IHitSetEncoder
@@ -33,7 +34,7 @@ class PointNetEncoder(IHitSetEncoder):
             self.layers.append(nn.Linear(hidden_dim, hidden_dim, device=device))
         self.layers.append(nn.Linear(hidden_dim, output_dim, device=device))
 
-    def forward(self, x):
+    def forward(self, x: Tensor, x_ind: Tensor) -> Tensor:
         """
         Forward pass of the encoder.
 
@@ -44,6 +45,8 @@ class PointNetEncoder(IHitSetEncoder):
             x = F.relu(layer(x))
         x = self.layers[-1](x)
 
-        x, _ = torch.max(x, dim=0)
+        # x, _ = torch.max(x, dim=0)
+        out = torch.zeros(x_ind.max().item() + 1, x.size(1), device=x.device)
+        out, _ = scatter_max(x, x_ind, dim=0, out=out)
 
-        return x
+        return out

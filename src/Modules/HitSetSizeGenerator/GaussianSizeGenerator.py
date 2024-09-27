@@ -21,16 +21,27 @@ class GaussianSizeGenerator(IHitSetSizeGenerator):
 
         self.layers.append(nn.Linear(hidden_dim, 2, device=device))
 
-    def forward(self, x: Tensor, _gt: Tensor):
+    def forward(self, z: Tensor, _gt: Tensor, _gt_ind: Tensor) -> Tensor:
         """
         Forward pass of the Gaussian size generator.
 
         :param Tensor x: Input tensor. Shape `[input_dim]`
+        :param Tensor gt: UNUSED - Ground truth tensor. Shape `[num_hits_next, hit_dim]`
+        :param Tensor gt_ind: UNUSED - Ground truth hit batch index tensor. Shape `[num_hits_next]`
+        """
+        return self.generate(z)
+
+    def generate(self, z: Tensor) -> int:
+        """
+        Generate a size for the hit set.
+
+        :param Tensor z: Input tensor. Shape `[input_dim]`
         """
 
+        x = z
         for layer in self.layers:
             x = layer(x)
 
-        mu, sigma = x
+        mus, sigmas = x[:, 0], x[:, 1]
 
-        return mu + sigma * randn(1, device=self.device)
+        return mus + sigmas * randn(x.size(0), device=self.device)

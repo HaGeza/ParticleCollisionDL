@@ -6,7 +6,7 @@ class IHitSetSizeGenerator(nn.Module):
     Interface for hit set size generators.
     """
 
-    def forward(self, x: Tensor, gt: Tensor) -> Tensor:
+    def forward(self, z: Tensor, gt: Tensor, gt_ind: Tensor) -> Tensor:
         raise NotImplementedError
 
     def generate(z: Tensor) -> int:

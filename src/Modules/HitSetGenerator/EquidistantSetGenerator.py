@@ -1,7 +1,7 @@
+import torch
 from torch import Tensor
 
 from src.TimeStep import ITimeStep
-
 from .IHitSetGenerator import IHitSetGenerator
 
 
@@ -20,7 +20,7 @@ class EquidistantSetGenerator(IHitSetGenerator):
         self.encoding_dim = encoding_dim
         self.hit_dim = hit_dim
 
-    def forward(self, x: Tensor, gt: Tensor, size: int):
+    def forward(self, x: Tensor, _gt: Tensor, _gt_ind: Tensor, size: Tensor) -> Tensor:
         """
         Forward pass of the equidistant set generator.
 
@@ -31,22 +31,23 @@ class EquidistantSetGenerator(IHitSetGenerator):
 
         return x
 
-    def calc_loss(self, pred_tensor: Tensor, gt_tensor: Tensor):
+    def calc_loss(self, pred_tensor: Tensor, _gt_tensor: Tensor, _gt_ind: Tensor) -> Tensor:
         """
         Calculate the loss of the equidistant set generator.
 
         :param Tensor pred_tensor: Predicted hit tensor. Shape `[num_hits_pred, hit_dim]`
         :param Tensor gt_tensor: Ground truth hit tensor. Shape `[num_hits_act, hit_dim]`
+        "param Tensor gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_act]`
         """
 
-        return 0
+        return torch.tensor(0.0, device=self.device)
 
-    def generate(self, x: Tensor, size: int):
+    def generate(self, x: Tensor, size: Tensor) -> Tensor:
         """
         Generate a hit set.
 
         :param Tensor x: Input tensor. Shape `[encoding_dim]`
-        :param int size: Size of the generated hit point-cloud.
+        :param Tensor size: Size of the generated hit point-cloud.
         """
 
         return x

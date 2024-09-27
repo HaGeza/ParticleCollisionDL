@@ -28,10 +28,6 @@ class Trainer:
         if model.device != device:
             model.to(device)
 
-    def _get_t_hit_tensor(grouped_hits: DataFrameGroupBy, t: int, device: str) -> torch.Tensor:
-        df = grouped_hits.get_group(t)[["x", "y", "z"]].reset_index(drop=True)
-        return torch.tensor(df.values, dtype=torch.float32, device=device)
-
     def train(self, data_loader: CollisionEventLoader, epochs: int):
         self.model.train()
 
@@ -39,21 +35,27 @@ class Trainer:
             self.model.to(self.device)
 
         for _epoch in range(epochs):
-            for hits, _, _ in data_loader:
-                grouped_hits = hits.groupby("t")
-
-                input_tensor = Trainer._get_t_hit_tensor(grouped_hits, 0, self.device)
+            for hits_tensor_list, batch_index_list in data_loader:
+                in_tensor = hits_tensor_list[0]
+                in_batch_index = batch_index_list[0].detach()
                 for t in range(1, self.model.time_step.get_num_time_steps()):
-                    gt_tensor = Trainer._get_t_hit_tensor(grouped_hits, t, self.device)
+                    gt_tensor = hits_tensor_list[t]
+                    gt_batch_index = batch_index_list[t].detach()
+                    with torch.no_grad():
+                        _, gt_size = torch.unique(gt_batch_index, return_counts=True)
+                        gt_size = gt_size.float().to(self.device)
 
                     self.optimizer.zero_grad()
 
-                    pred_size, pred_tensor = self.model(input_tensor, gt_tensor, t)
-                    loss = self.model.calc_loss(pred_size, pred_tensor, gt_tensor, t, self.size_loss_weight)
+                    pred_size, pred_tensor = self.model(in_tensor, gt_tensor, in_batch_index, gt_batch_index, t)
+                    loss = self.model.calc_loss(
+                        pred_size, pred_tensor, gt_size, gt_tensor, gt_batch_index, t, self.size_loss_weight
+                    )
 
                     loss.backward()
                     self.optimizer.step()
 
-                    input_tensor = gt_tensor
+                    in_tensor = gt_tensor
+                    in_batch_index = gt_batch_index
 
             self.scheduler.step()

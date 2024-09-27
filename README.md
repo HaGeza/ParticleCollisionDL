@@ -1,4 +1,33 @@
-# 2AMM40_ParticleTracking
+# 2AMM40_ParticleTracking - Group 4
+
+### Setup
+
+The repo was tested with the following python version(s): Python 3.11.10.
+
+Run `setup.py`, which does the following:
+1. Installs `requirements.txt`
+2. Installs `trackml-library`:
+    - Clone the repository next to the project directory: `git clone https://github.com/LAL/trackml-library`
+    - Go to the base directory and install with: `pip install --user trackml-library`
+3. Installs `torch-scatter`:
+    - Clone the repository next to the project directory: `git clone https://github.com/rusty1s/pytorch_scatter.git`
+    - Go to the cloned repo and install with: `python setup.py install`
+
+### Components
+
+- `ITimeStep`: "interface" for handling pseudo-time-steps
+- `CollisionEventLoader`: Data loader. As different time-steps of different events can contain different number of hits, event time-steps are batched by concatenating them and returning a separate batch indices tensor list.
+- The main model is the `HitSetGenerativeModel` or HSGM for short
+- It has three main components, each of which "implement" an interface:
+    - The encoder (`IHitSetEncoder`): takes a batched hit-set at times-step t, and produces a batch of fixed-size encodings
+    - The size generator (`IHitSetSizeGenerator`): takes a fixed-size encoding and the ground-truth hits and batch indices ((*) these may be used e.g. following Koen et al., 2023) and generates the size of the hit point-cloud in the next time-step
+    - The set generator (`IHitSetGenerator`): takes a fixed-size encoding, the size of the next hit point-cloud and the ground-truth hits and batch indices (*), and generates the next point cloud
+- `HSGMTrainer`: responsible for training
+
+---
+---
+# Original Readme
+
 Advanced Topics in AI (2AMM40) @ TU/e - Particle Tracking Project
 
 ## Particle Tracking @ CERN
