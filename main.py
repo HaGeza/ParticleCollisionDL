@@ -5,7 +5,8 @@ import torch
 from torch.optim import Adam
 from torch.optim.lr_scheduler import StepLR
 
-from src.TimeStep import TimeStepEnum, VLTimeStep, DistanceTimeStep
+from src.TimeStep import TimeStepEnum, DistanceTimeStep
+from src.TimeStep.ForEquidistant.VolumeLayer import VLTimeStep
 from src.Trainer import Trainer
 from src.Data import CollisionEventLoader
 from src.Modules.HitSetEncoder import HitSetEncoderEnum

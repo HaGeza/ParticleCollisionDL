@@ -1,4 +1,3 @@
-import json
 import os
 from trackml.dataset import load_event
 from tqdm import tqdm

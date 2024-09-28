@@ -1,10 +1,11 @@
-from src.TimeStep.ITimeStep import ITimeStep
+from src.TimeStep.ForEquidistant import ITimesStepForEquidistant
 from .VLMaps import get_volume_layer_mapper
 
+from torch import Tensor
 from pandas import DataFrame
 
 
-class VLTimeStep(ITimeStep):
+class VLTimeStep(ITimesStepForEquidistant):
     def __init__(self, map_index: int = 0):
         self.map_to_t, self.num_t = get_volume_layer_mapper(map_index)
 
@@ -13,3 +14,6 @@ class VLTimeStep(ITimeStep):
 
     def get_num_time_steps(self) -> int:
         return self.num_t
+
+    def place_equidistant_hits(self, t: int, size: Tensor) -> Tensor:
+        raise NotImplementedError

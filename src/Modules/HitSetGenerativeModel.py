@@ -31,7 +31,7 @@ class HitSetGenerativeModel(nn.Module):
         self.size_generators = nn.ModuleList()
         self.set_generators = nn.ModuleList()
 
-        for _ in range(time_step.get_num_time_steps()):
+        for t in range(time_step.get_num_time_steps()):
             if encoder_type == HitSetEncoderEnum.POINT_NET:
                 self.encoders.append(PointNetEncoder(device=device))
 
@@ -39,7 +39,7 @@ class HitSetGenerativeModel(nn.Module):
                 self.size_generators.append(GaussianSizeGenerator(device=device))
 
             if set_generator_type == HitSetGeneratorEnum.EQUIDISTANT:
-                self.set_generators.append(EquidistantSetGenerator(time_step, device=device))
+                self.set_generators.append(EquidistantSetGenerator(t, time_step, device=device))
 
     def forward(self, x: Tensor, gt: Tensor, x_ind: Tensor, gt_ind: Tensor, t: int) -> tuple[int, Tensor]:
         z = self.encoders[t](x, x_ind)

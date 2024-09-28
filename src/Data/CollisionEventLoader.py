@@ -1,7 +1,6 @@
 import os
 from typing import Iterator
 from src.TimeStep import ITimeStep
-import trackml
 from trackml.dataset import load_event
 from pandas import DataFrame
 from pandas.api.typing import DataFrameGroupBy
