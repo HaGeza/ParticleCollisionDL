@@ -1,4 +1,5 @@
 from torch import nn, Tensor, randn
+from torch.nn import functional as F
 
 from .IHitSetSizeGenerator import IHitSetSizeGenerator
 
@@ -40,8 +41,9 @@ class GaussianSizeGenerator(IHitSetSizeGenerator):
 
         x = z
         for layer in self.layers:
-            x = layer(x)
+            x = F.relu(layer(x))
 
         mus, sigmas = x[:, 0], x[:, 1]
 
-        return mus + sigmas * randn(x.size(0), device=self.device)
+        samples = mus + sigmas * randn(x.size(0), device=self.device)
+        return F.relu(samples)

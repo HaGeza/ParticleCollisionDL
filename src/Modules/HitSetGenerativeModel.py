@@ -44,7 +44,7 @@ class HitSetGenerativeModel(nn.Module):
     def forward(self, x: Tensor, gt: Tensor, x_ind: Tensor, gt_ind: Tensor, t: int) -> tuple[int, Tensor]:
         z = self.encoders[t](x, x_ind)
         size = self.size_generators[t](z, gt, gt_ind)
-        return size, self.set_generators[t](size, z, gt, gt_ind)
+        return size, self.set_generators[t](z, gt, gt_ind, size)
 
     def calc_loss(
         self,

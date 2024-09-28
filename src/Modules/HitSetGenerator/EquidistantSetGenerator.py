@@ -39,7 +39,8 @@ class EquidistantSetGenerator(IHitSetGenerator):
         :return: Generated hit set. Shape `[sum(size), hit_dim]`
         """
 
-        return self.time_step.place_equidistant_hits(self.t, size)
+        with torch.no_grad():
+            return self.time_step.place_equidistant_hits(self.t, size, self.device)
 
     def generate(self, _x: Tensor, size: Tensor) -> Tensor:
         """
@@ -50,7 +51,8 @@ class EquidistantSetGenerator(IHitSetGenerator):
         :return: Generated hit set. Shape `[sum(size), hit_dim]`
         """
 
-        return self.time_step.place_equidistant_hits(self.t, size)
+        with torch.no_grad():
+            return self.time_step.place_equidistant_hits(self.t, size, self.device)
 
     def calc_loss(self, pred_tensor: Tensor, gt_tensor: Tensor, gt_ind: Tensor) -> Tensor:
         """

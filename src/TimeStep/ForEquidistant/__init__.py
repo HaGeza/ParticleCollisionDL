@@ -1,1 +1,1 @@
-from .ITimesStepForEquidistant import ITimeStepForEquidistant
+from .ITimeStepForEquidistant import ITimeStepForEquidistant

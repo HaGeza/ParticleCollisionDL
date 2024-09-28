@@ -52,6 +52,8 @@ class Trainer:
                         pred_size, pred_tensor, gt_size, gt_tensor, gt_batch_index, t, self.size_loss_weight
                     )
 
+                    # print(f"Epoch {_epoch}, Time step {t}, Size: {pred_size.detach().numpy()}, Loss: {loss.item()}")
+
                     loss.backward()
                     self.optimizer.step()
 

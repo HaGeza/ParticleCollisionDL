@@ -41,11 +41,9 @@ class PointNetEncoder(IHitSetEncoder):
         :param Tensor x: The input tensor containing the hit point-cloud. Shape: `[num_hits, input_dim]`.
         :return Tensor: The output tensor encoding information about the hit point-cloud.
         """
-        for layer in self.layers[:-1]:
+        for layer in self.layers:
             x = F.relu(layer(x))
-        x = self.layers[-1](x)
 
-        # x, _ = torch.max(x, dim=0)
         out = torch.zeros(x_ind.max().item() + 1, x.size(1), device=x.device)
         out, _ = scatter_max(x, x_ind, dim=0, out=out)
 
