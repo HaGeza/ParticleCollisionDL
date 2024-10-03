@@ -16,9 +16,12 @@ class PointNetEncoder(IHitSetEncoder):
     ):
         """
         Constructor for the PointNet encoder.
+
         :param input_dim: The dimension of the input.
         :param hidden_dim: The dimension of the hidden layer.
         :param output_dim: The dimension of the output.
+        :param num_layers: The number of layers in the encoder.
+        :param device: The device to run the encoder on.
         """
         super().__init__()
 
@@ -39,6 +42,7 @@ class PointNetEncoder(IHitSetEncoder):
         Forward pass of the encoder.
 
         :param Tensor x: The input tensor containing the hit point-cloud. Shape: `[num_hits, input_dim]`.
+        :param Tensor x_ind: The batch index tensor. Shape: `[num_hits]`.
         :return Tensor: The output tensor encoding information about the hit point-cloud.
         """
         for layer in self.layers:

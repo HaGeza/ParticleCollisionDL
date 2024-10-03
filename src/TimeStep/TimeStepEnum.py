@@ -7,4 +7,4 @@ class TimeStepEnum(Enum):
     """
 
     VOLUME_LAYER = "volume_layer"
-    DISTANCE = "distance"
+    # DISTANCE = "distance"

@@ -6,4 +6,4 @@ class HitSetGeneratorEnum(Enum):
     Enum for the different hit set generators.
     """
 
-    EQUIDISTANT = "equidistant"
+    ADJUSTING = "adjusting"

@@ -1,3 +1,8 @@
+"""
+This file contains the approximate location of each volume-layer ring in the detector.
+Volumes are mapped to dictionaries mapping layers to tuples of: (inner radius, outer radius, z_min, z_max).
+"""
+
 VL_TO_RING = {
     7: {
         2: (30.030488967895508, 176.1522674560547, -1502.5, -1497.5),

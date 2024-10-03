@@ -5,7 +5,21 @@ from .IHitSetSizeGenerator import IHitSetSizeGenerator
 
 
 class GaussianSizeGenerator(IHitSetSizeGenerator):
+    """
+    Hit set size generator that generates sizes from a Gaussian distribution, with parameters learned
+    by a simple neural network.
+    """
+
     def __init__(self, input_dim: int = 16, hidden_dim: int = 2, num_layers: int = 2, device: str = "cpu"):
+        """
+        Constructor for the Gaussian size generator.
+
+        :param int input_dim: Input dimension of the of the NN.
+        :param int hidden_dim: Hidden dimension of the NN.
+        :param int num_layers: Number of layers in the NN.
+        :param str device: Device to run the NN on.
+        """
+
         super().__init__()
 
         self.device = device
@@ -26,17 +40,20 @@ class GaussianSizeGenerator(IHitSetSizeGenerator):
         """
         Forward pass of the Gaussian size generator.
 
-        :param Tensor x: Input tensor. Shape `[input_dim]`
-        :param Tensor gt: UNUSED - Ground truth tensor. Shape `[num_hits_next, hit_dim]`
-        :param Tensor gt_ind: UNUSED - Ground truth hit batch index tensor. Shape `[num_hits_next]`
+        :param Tensor z: Input tensor encoding the input hit-set. Shape `[batch_num, input_dim]`
+        :param Tensor _gt: Ground truth hit tensor. Shape `[num_hits_next, hit_dim]`
+        :param Tensor _gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`
+        :return: Generated hit set size tensor. Shape `[batch_num]`
         """
+
         return self.generate(z)
 
     def generate(self, z: Tensor) -> int:
         """
         Generate a size for the hit set.
 
-        :param Tensor z: Input tensor. Shape `[input_dim]`
+        :param Tensor z: Input tensor encoding the input hit-set. Shape `[batch_num, input_dim]`
+        :return: Generated hit set size tensor. Shape `[batch_num]`
         """
 
         x = z

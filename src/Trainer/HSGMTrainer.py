@@ -8,7 +8,7 @@ from src.Data.CollisionEventLoader import CollisionEventLoader
 
 class Trainer:
     """
-    Trainer class for training a `HitSetGenerativeModel`
+    Trainer class for training a `HitSetGenerativeModel`s
     """
 
     def __init__(
@@ -19,6 +19,14 @@ class Trainer:
         device: str = "cpu",
         size_loss_weight: float = 0.25,
     ):
+        """
+        :param HitSetGenerativeModel model: The model to train
+        :param Optimizer optimizer: The optimizer to use
+        :param lr_scheduler._LRScheduler scheduler: The learning rate scheduler to use
+        :param str device: The device to use
+        :param float size_loss_weight: The weight to give to the size loss
+        """
+
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
@@ -29,6 +37,13 @@ class Trainer:
             model.to(device)
 
     def train(self, data_loader: CollisionEventLoader, epochs: int):
+        """
+        Train the model using the given data loader.
+
+        :param CollisionEventLoader data_loader: The data loader to use
+        :param int epochs: The number of epochs to train for
+        """
+
         self.model.train()
 
         if self.model.device != self.device:
@@ -47,12 +62,12 @@ class Trainer:
 
                     self.optimizer.zero_grad()
 
-                    pred_size, pred_tensor = self.model(in_tensor, gt_tensor, in_batch_index, gt_batch_index, t)
-                    loss = self.model.calc_loss(
-                        pred_size, pred_tensor, gt_size, gt_tensor, gt_batch_index, t, self.size_loss_weight
+                    pred_size, used_size, pred_tensor = self.model(
+                        in_tensor, gt_tensor, in_batch_index, gt_batch_index, t
                     )
-
-                    # print(f"Epoch {_epoch}, Time step {t}, Size: {pred_size.detach().numpy()}, Loss: {loss.item()}")
+                    loss = self.model.calc_loss(
+                        pred_size, used_size, pred_tensor, gt_size, gt_tensor, gt_batch_index, t, self.size_loss_weight
+                    )
 
                     loss.backward()
                     self.optimizer.step()

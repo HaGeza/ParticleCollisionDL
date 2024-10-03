@@ -1,15 +1,17 @@
 from torch import Tensor
 
 from src.TimeStep import ITimeStep
+from src.Util import CoordinateSystemEnum
 
 
-class ITimeStepForEquidistant(ITimeStep):
-    def place_equidistant_hits(self, t: int, size: Tensor, device: str = "cpu") -> Tensor:
+class ITimeStepForAdjusting(ITimeStep):
+    def place_hits(self, t: int, size: Tensor, coordinate_system: CoordinateSystemEnum, device: str = "cpu") -> Tensor:
         """
-        Place equidistant hits on the hit surface.
+        Place hits on the hit surface to be adjusted later.
 
         :param int t: The pseudo time step to place the hits for
         :param int size: The number of hits to place
+        :param CoordinateSystemEnum coordinate_system: The coordinate system to use
         :param str device: The device to use
         :return: The placed hits. Shape `[sum(size), hit_dim]`
         """
