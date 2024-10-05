@@ -47,11 +47,11 @@ class AdjustingSetGenerator(IHitSetGenerator):
 
         self.pairing_strategy: IPairingStrategy = None
         if pairing_strategy_type == PairingStrategyEnum.GREEDY:
-            self.pairing_strategy = GreedyStrategy(coordinate_system)
+            self.pairing_strategy = GreedyStrategy()
         elif pairing_strategy_type == PairingStrategyEnum.KD_TREE:
-            self.pairing_strategy = RepeatedKDTreeStrategy(coordinate_system)
+            self.pairing_strategy = RepeatedKDTreeStrategy()
         else:
-            raise ValueError(f"Unknown pairing strategy: {pairing_strategy_type.value}")
+            raise ValueError(f"Unknown pairing strategy: {pairing_strategy_type}")
 
         self.max_pair_loss = self.pairing_strategy.__class__.MAX_PAIR_LOSS
 
