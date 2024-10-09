@@ -3,6 +3,8 @@ from torch import Tensor
 
 from src.TimeStep.TimeStepEnum import TimeStepEnum
 
+from src.TimeStep.TimeStepEnum import TimeStepEnum
+
 
 class ITimeStep:
     def define_time_step(self, hits: DataFrame):
