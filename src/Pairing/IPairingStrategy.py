@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 
 from src.Util import CoordinateSystemEnum
-from src.Util import convert_to_cartesian, cartesian_squared_euclidean
+from src.Util import convert_to_cartesian
 
 
 class IPairingStrategy:
@@ -12,8 +12,6 @@ class IPairingStrategy:
     Interface for the pairing strategy. A pairing strategy is used to pair up
     generated and ground-truth hits to calculate the reconstruction loss.
     """
-
-    MAX_PAIR_LOSS = 7000.0
 
     def create_pairs_in_batch(self, args: tuple[Tensor, Tensor, int, int]) -> Tensor:
         """
@@ -39,6 +37,13 @@ class IPairingStrategy:
         :return Tensor: Pairing tensor. Shape `[sum(min(num_hits_batch_i, num_hits_next_batch_i)), 2]`
         """
 
+        original_device = pred.device
+        if original_device.type == "mps":
+            pred.cpu()
+            gt.cpu()
+            pred_ind.cpu()
+            gt_ind.cpu()
+
         # Create lists of batch predictions and ground truths
         num_batches = max(gt_ind.max() if len(gt_ind) > 0 else 0, pred_ind.max() if len(pred_ind) else 0) + 1
         pred_list = [pred[pred_ind == i] for i in range(num_batches)]
@@ -47,14 +52,20 @@ class IPairingStrategy:
         pred_offsets = list(np.cumsum([0] + [len(pred) for pred in pred_list[:-1]]))
         gt_offsets = list(np.cumsum([0] + [len(gt) for gt in gt_list[:-1]]))
 
-        with multiprocessing.Pool() as pool:
-            pairs_list = pool.map(self.create_pairs_in_batch, zip(pred_list, gt_list, pred_offsets, gt_offsets))
         # pairs_list = [
         #     self.create_pairs_in_batch((pred, gt, pred_offset, gt_offset))
         #     for pred, gt, pred_offset, gt_offset in zip(pred_list, gt_list, pred_offsets, gt_offsets)
         # ]
+        with multiprocessing.Pool() as pool:
+            pairs_list = pool.map(self.create_pairs_in_batch, zip(pred_list, gt_list, pred_offsets, gt_offsets))
 
         pairs = torch.cat(pairs_list, dim=0)
+
+        if original_device.type == "mps":
+            pred.to(original_device)
+            gt.to(original_device)
+            pred_ind.to(original_device)
+            gt_ind.to(original_device)
 
         return pairs
 
@@ -82,7 +93,7 @@ class IPairingStrategy:
         gt_cart = convert_to_cartesian(gt, coordinate_system)
 
         pairs = self._create_pairs(pred_cart, gt_cart, pred_ind, gt_ind)
-        diffs = cartesian_squared_euclidean(pred_cart[pairs[:, 0]], gt_cart[pairs[:, 1]])
+        diffs = torch.sum((pred_cart[pairs[:, 0]] - gt_cart[pairs[:, 1]]) ** 2, dim=1)
         if reduction == "mean":
             return diffs.mean() if len(diffs) > 0 else torch.tensor(0.0, device=pred.device)
         elif reduction == "sum":

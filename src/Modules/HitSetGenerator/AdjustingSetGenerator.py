@@ -53,7 +53,7 @@ class AdjustingSetGenerator(IHitSetGenerator):
         else:
             raise ValueError(f"Unknown pairing strategy: {pairing_strategy_type}")
 
-        self.max_pair_loss = self.pairing_strategy.__class__.MAX_PAIR_LOSS
+        self.max_pair_loss = time_step.get_max_squared_distance()
 
     def forward(self, _x: Tensor, _gt: Tensor, _gt_ind: Tensor, size: Tensor) -> Tensor:
         """
@@ -67,7 +67,7 @@ class AdjustingSetGenerator(IHitSetGenerator):
         """
 
         with torch.no_grad():
-            return self.time_step.place_hits(self.t, size, self.coordinate_system, self.device)
+            return self.time_step.place_hits(self.t, size, self.coordinate_system, device=self.device)
 
     def generate(self, _x: Tensor, size: Tensor) -> Tensor:
         """
@@ -79,7 +79,7 @@ class AdjustingSetGenerator(IHitSetGenerator):
         """
 
         with torch.no_grad():
-            return self.time_step.place_hits(self.t, size, self.coordinate_system, self.device)
+            return self.time_step.place_hits(self.t, size, self.coordinate_system, device=self.device)
 
     def calc_loss(self, pred_tensor: Tensor, gt_tensor: Tensor, pred_ind: Tensor, gt_ind: Tensor) -> Tensor:
         """

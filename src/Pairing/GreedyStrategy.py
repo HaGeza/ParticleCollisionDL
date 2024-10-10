@@ -3,7 +3,6 @@ import torch
 from torch import Tensor
 
 from src.Util import CoordinateSystemEnum
-from src.Util import cartesian_squared_euclidean
 from .IPairingStrategy import IPairingStrategy
 
 
@@ -31,7 +30,7 @@ class GreedyStrategy(IPairingStrategy):
         indices = torch.arange(gt.size(0), device=pred.device)
 
         for i in range(num_pairs):
-            min_ind = torch.argmin(cartesian_squared_euclidean(pred[i], gt[unused]), dim=0)
+            min_ind = torch.argmin(torch.sum((pred[i] - gt[unused]) ** 2, dim=1), dim=0)
             min_ind = indices[unused][min_ind]
             pairs[i] = torch.tensor([i + pred_ind, min_ind + gt_ind], device=pred.device)
             unused[min_ind] = False

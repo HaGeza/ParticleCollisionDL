@@ -1,3 +1,4 @@
+from src.TimeStep.TimeStepEnum import TimeStepEnum
 from src.TimeStep.ForAdjusting import ITimeStepForAdjusting
 from src.TimeStep.ForAdjusting.PlacementStrategy import IPlacementStrategy, SqueezedSinusoidStrategy
 from src.Util import CoordinateSystemEnum
@@ -14,7 +15,11 @@ class VLTimeStep(ITimeStepForAdjusting):
     Uses the volume-layer to time-step mapping to determine the time-step.
     """
 
-    def __init__(self, map_index: int = 0, placement_strategy: IPlacementStrategy = SqueezedSinusoidStrategy()):
+    def __init__(
+        self,
+        map_index: int = 0,
+        placement_strategy: IPlacementStrategy = SqueezedSinusoidStrategy(),
+    ):
         """
         :param int map_index: The index of the volume layer to time-step mapping to use.
         :param IPlacementStrategy placement_strategy: The placement strategy to use.
@@ -23,6 +28,17 @@ class VLTimeStep(ITimeStepForAdjusting):
         self.vl_to_t, self.num_t = get_volume_layer_to_t(map_index)
         self.t_to_vls = get_t_to_volume_layers(self.vl_to_t, self.num_t)
         self.placement_strategy = placement_strategy
+
+        self.vl_scales = [0] * self.num_t
+        for t in range(self.num_t):
+            vls = self.t_to_vls[t]
+            max_r_max, min_z_min, max_z_max = float("-inf"), float("inf"), float("-inf")
+            for volume_id, layer_id in vls:
+                ring = VL_TO_RING[volume_id][layer_id]
+                max_r_max = max(max_r_max, ring[1])
+                min_z_min = min(min_z_min, ring[2])
+                max_z_max = max(max_z_max, ring[3])
+            self.vl_scales[t] = max(max_r_max, (max_z_max - min_z_min) / 2)
 
     def map_vl_to_t(self, row: Series) -> int:
         """
@@ -58,7 +74,7 @@ class VLTimeStep(ITimeStepForAdjusting):
 
         :param int t: The time-step.
         :param torch.Tensor size: The number of hits to place in each ring.
-        :param str device: The device to use.
+        :param str device: The device to place the hits on.
         :return: The placed hits.
         """
 
@@ -81,4 +97,37 @@ class VLTimeStep(ITimeStepForAdjusting):
             ring_capacities[i, : remaining[i].item()] += 1
 
         # Generate and return the hit set using the placement strategy, as a tensor of shape `[sum(size), 3]`
-        return self.placement_strategy.place_points_in_rings(rings, ring_capacities, coordinate_system)
+        hits = self.placement_strategy.place_points_in_rings(rings, ring_capacities, coordinate_system)
+        return self.normalize_hit_tensor(hits, t)
+
+    def get_enum(self) -> TimeStepEnum:
+        """
+        Returns the enum value of the time-step.
+
+        :return: The enum value of the time-step.
+        """
+
+        return TimeStepEnum.VOLUME_LAYER
+
+    def normalize_hit_tensor(self, hit_tensor: Tensor, t: int) -> Tensor:
+        """
+        Normalizes the hit tensor for the given time-step.
+
+        :param torch.Tensor hit_tensor: The hit tensor to normalize.
+        :param int t: The time-step to normalize the hit tensor for.
+        :return: The normalized hit tensor.
+        """
+
+        return hit_tensor / self.vl_scales[t]
+
+    def get_max_squared_distance(self) -> float:
+        """
+        Returns the maximum possible squared distance between any two hits. This assumes
+        that the hits have been normalized using the `normalize_hit_tensor` method. If this
+        is not the case the max pairwise squared distance is potentially as large as
+        `3 * max(self.vl_scales) ** 2`, which would likely lead to numerical instability.
+
+        :return float: The maximum possible squared distance between any two hits.
+        """
+
+        return 3.0

@@ -43,11 +43,20 @@ class HitSetGenerativeModel(nn.Module):
         self.device = device
         self.to(device)
 
+        self.information = {
+            "encoder": encoder_type.value,
+            "size_generator": size_generator_type.value,
+            "set_generator": set_generator_type.value,
+            "time_step": time_step.get_enum().value,
+            "pairing_strategy": pairing_strategy_type.value,
+            "coordinate_system": coordinate_system.value,
+        }
+
         self.encoders = nn.ModuleList()
         self.size_generators = nn.ModuleList()
         self.set_generators = nn.ModuleList()
 
-        for t in range(time_step.get_num_time_steps()):
+        for t in range(time_step.get_num_time_steps() - 1):
             if encoder_type == HitSetEncoderEnum.POINT_NET:
                 self.encoders.append(PointNetEncoder(device=device))
 
@@ -58,6 +67,8 @@ class HitSetGenerativeModel(nn.Module):
                 self.set_generators.append(
                     AdjustingSetGenerator(t, time_step, pairing_strategy_type, coordinate_system, device=device)
                 )
+            elif set_generator_type == HitSetGeneratorEnum.NONE:
+                self.set_generators.append(None)
 
     def forward(self, x: Tensor, gt: Tensor, x_ind: Tensor, gt_ind: Tensor, t: int) -> tuple[Tensor, Tensor, Tensor]:
         """
@@ -71,11 +82,20 @@ class HitSetGenerativeModel(nn.Module):
             the hit set sizes used for set generation (rounded to integers), and the generated hit set.
         """
 
-        z = self.encoders[t](x, x_ind)
-        size = self.size_generators[t](z, gt, gt_ind)
+        z = self.encoders[t - 1](x, x_ind)
+        size = self.size_generators[t - 1](z, gt, gt_ind)
         with torch.no_grad():
-            size_int = size.round().int()
-        return size, size_int, self.set_generators[t](z, gt, gt_ind, size_int)
+            size_int = torch.clamp(size, min=0.0).round().int()
+
+        return (
+            size,
+            size_int,
+            (
+                self.set_generators[t - 1](z, gt, gt_ind, size_int)
+                if self.set_generators[t - 1] is not None
+                else Tensor([])
+            ),
+        )
 
     def calc_loss(
         self,
@@ -90,7 +110,7 @@ class HitSetGenerativeModel(nn.Module):
     ) -> Tensor:
         """
         Calculate the loss of the hit-set generative model. The loss consists of two parts:
-        1. Loss incurred by the size prediction (MAX_PAIR_LOSS for each missing / additional predicted hit)
+        1. Loss incurred by the size prediction (max_pair_loss for each missing / additional predicted hit)
         2. Loss incurred by the set prediction (uses the loss function of the set generator).
 
         :param Tensor pred_size: Predicted hit set size tensor. Shape `[batch_num]`
@@ -100,28 +120,48 @@ class HitSetGenerativeModel(nn.Module):
         :param Tensor gt_tensor: Ground truth hit tensor. Shape `[num_hits_next, hit_dim]`
         :param Tensor gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`
         :param int t: Time step to calculate the loss for.
-        :param float size_loss_ratio: Ratio of the size loss to the set loss.
+        :param float size_loss_ratio: Ratio of the size loss to the set loss. Unused if no set generator is defined.
         :return: Loss tensor.
         """
 
-        size_loss = (torch.abs(pred_size - gt_size) * self.set_generators[t].max_pair_loss).mean()
-        pred_ind = torch.repeat_interleave(torch.arange(len(used_size)), used_size)
-        set_loss = self.set_generators[t].calc_loss(pred_tensor, gt_tensor, pred_ind, gt_ind)
+        if self.set_generators[t - 1] is not None:
+            size_loss = (torch.abs(pred_size - gt_size) * self.set_generators[t - 1].max_pair_loss).mean()
+            pred_ind = torch.repeat_interleave(torch.arange(len(used_size), device=self.device), used_size)
+            set_loss = self.set_generators[t - 1].calc_loss(pred_tensor, gt_tensor, pred_ind, gt_ind)
 
-        print(f"t= {t}: Size loss: {size_loss.item()}, Set loss: {set_loss.item()}")
+            print(f"t= {t}: Size loss: {size_loss.item()}, Set loss: {set_loss.item()}")
 
-        return size_loss * size_loss_ratio + set_loss * (1 - size_loss_ratio)
+            return size_loss * size_loss_ratio + set_loss * (1 - size_loss_ratio)
+        else:
+            size_loss = F.mse_loss(pred_size, gt_size)
 
-    def generate(self, x: Tensor, x_ind: Tensor, t: int) -> Tensor:
+            print(f"t= {t}: {pred_size.mean()} vs {gt_size.mean()} --> Size loss: {size_loss.item()}")
+
+            return size_loss
+
+    def generate(self, x: Tensor, x_ind: Tensor, t: int) -> Tensor | None:
         """
         Generate the hit set at time t+1 given the hit set at time t.
 
         :param Tensor x: Input hit tensor. Shape `[num_hits, hit_dim]`
         :param Tensor x_ind: Input hit batch index tensor. Shape `[num_hits]`
         :param int t: Time step to generate the hit set for.
-        :return: Generated hit set tensor. Shape `[num_hits_pred, hit_dim]`
+        :return: Generated hit set tensor. Shape `[num_hits_pred, hit_dim]`. None if no set generator is defined.
         """
 
-        x = self.encoders[t](x, x_ind)
-        size = self.size_generators[t].generate(x, x_ind)
-        return self.set_generators[t].generate(size.round().int(), x, x_ind)
+        x = self.encoders[t - 1](x, x_ind)
+        size = self.size_generators[t - 1].generate(x, x_ind)
+        return (
+            self.set_generators[t - 1].generate(size.round().int(), x, x_ind)
+            if self.set_generators[t - 1] is not None
+            else None
+        )
+
+    def get_info(self) -> dict[str, str]:
+        """
+        Get information about the model.
+
+        :return dict[str, str]: Information about the model.
+        """
+
+        return self.information

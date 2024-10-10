@@ -1,2 +1,3 @@
 from .CoordinateSystemEnum import CoordinateSystemEnum
-from .CoordinateSystemFuncs import cartesian_squared_euclidean, convert_to_cartesian
+from .CoordinateSystemFuncs import convert_to_cartesian
+from .Globals import DATA_DIR, MODELS_DIR, RESULTS_DIR

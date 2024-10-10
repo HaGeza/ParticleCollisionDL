@@ -7,3 +7,4 @@ class HitSetGeneratorEnum(Enum):
     """
 
     ADJUSTING = "adjusting"
+    NONE = "none"

@@ -3,7 +3,7 @@ import datetime
 import os
 import torch
 from torch.optim import Adam
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import CyclicLR
 
 from src.Util import CoordinateSystemEnum
 from src.TimeStep import TimeStepEnum, DistanceTimeStep
@@ -15,6 +15,7 @@ from src.Modules.HitSetEncoder import HitSetEncoderEnum
 from src.Modules.HitSetSizeGenerator import HitSetSizeGeneratorEnum
 from src.Modules.HitSetGenerator import HitSetGeneratorEnum
 from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel
+from src.Util import DATA_DIR, MODELS_DIR, RESULTS_DIR
 
 
 def main():
@@ -23,6 +24,13 @@ def main():
     ap.add_argument("-d", "--dataset", default="train_sample", help="path to input dataset")
     ap.add_argument("-e", "--epochs", default=100, help="number of epochs to train the model")
     ap.add_argument("-b", "--batch_size", default=2, help="batch size for training")
+    ap.add_argument("-l", "--lr", "--learning_rate", default=1e-3, help="learning rate for training")
+    ap.add_argument(
+        "--min_lr",
+        "--min_learning_rate",
+        default=None,
+        help="minimum learning rate for training; if not specified, equal to lr",
+    )
     ap.add_argument(
         "-c",
         "--coordinate_system",
@@ -74,19 +82,18 @@ def main():
     # Determine root directory
     root_dir = os.path.dirname(os.path.abspath(__file__))
 
+    # Determine device: cuda > (mps >) cpu
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "cpu"  # "mps" if torch.backends.mps.is_available() else "cpu"
+    )
+
     # Initialize time step
     if args.time_step == TimeStepEnum.VOLUME_LAYER:
         time_step = VLTimeStep()
 
-    # Determine device: cuda > (mps >) cpu
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # mps could be used with:
-    # "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-    # but torch_scatter does not support mps
-
     # Initialize data loader
     data_loader = CollisionEventLoader(
-        os.path.join(root_dir, "data", args.dataset),
+        os.path.join(root_dir, DATA_DIR, args.dataset),
         time_step,
         args.batch_size,
         coordinate_system=args.coordinate_system,
@@ -111,13 +118,15 @@ def main():
     )
 
     # Initialize optimizer
-    optimizer = Adam(model.parameters(), lr=1e-5)
+    lr = float(args.lr)
+    optimizer = Adam(model.parameters(), lr=lr)
 
     # Initialize scheduler
-    scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
+    min_lr = lr if args.min_lr is None else float(args.min_lr)
+    scheduler = CyclicLR(optimizer, base_lr=min_lr, max_lr=lr, step_size_up=100)
 
     # Train model
-    trainer = Trainer(model, optimizer, scheduler, device)
+    trainer = Trainer(model, optimizer, scheduler, device, models_path=MODELS_DIR, results_path=RESULTS_DIR)
     trainer.train(data_loader, args.epochs)
 
     # Save model

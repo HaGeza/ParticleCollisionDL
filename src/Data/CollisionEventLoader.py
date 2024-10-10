@@ -27,13 +27,16 @@ class CollisionEventLoader:
         hits_cols: list[str] = ["x", "y", "z"],
         coordinate_system: CoordinateSystemEnum = CoordinateSystemEnum.CYLINDRICAL,
         device: str = "cpu",
+        return_event_ids: bool = False,
     ):
         """
         :param str dataset_path: Path to the dataset
         :param ITimeStep time_step: Time step object used for creating the pseudo-time step column
         :param int batch_size: Batch size
         :param list[str] hits_cols: List of columns to be returned from the hits `DataFrame`
+        :param CoordinateSystemEnum coordinate_system: Coordinate system to use
         :param str device: Device to load the data on
+        :param bool return_event_ids: Whether to return the event IDs along with the hit tensors
         """
 
         self.dataset_path = dataset_path
@@ -44,6 +47,7 @@ class CollisionEventLoader:
         self.num_t = time_step.get_num_time_steps()
         self.coordinate_system = coordinate_system
         self.device = device
+        self.return_event_ids = return_event_ids
 
     def _get_t_hit_tensor(self, grouped_hits: DataFrameGroupBy, t: int) -> torch.Tensor:
         """
@@ -59,6 +63,7 @@ class CollisionEventLoader:
             dtype=torch.float32,
             device=self.device,
         )
+        hit_tensor = self.time_step.normalize_hit_tensor(hit_tensor, t)
 
         if self.coordinate_system == CoordinateSystemEnum.CYLINDRICAL:
             angles = torch.atan2(hit_tensor[:, 1], hit_tensor[:, 0])
@@ -113,10 +118,16 @@ class CollisionEventLoader:
                 index_in_batch += 1
                 # Yield the batch when it is full
                 if index_in_batch >= self.batch_size:
-                    yield hits_tensor_list, batch_index_list
+                    if self.return_event_ids:
+                        yield hits_tensor_list, batch_index_list, event_id
+                    else:
+                        yield hits_tensor_list, batch_index_list
                     hits_tensor_list, batch_index_list = self._reset_batch()
                     index_in_batch = 0
 
         # Yield the last batch if it is not empty
         if index_in_batch > 0:
-            yield hits_tensor_list, batch_index_list
+            if self.return_event_ids:
+                yield hits_tensor_list, batch_index_list, event_id
+            else:
+                yield hits_tensor_list, batch_index_list

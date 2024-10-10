@@ -1,6 +1,5 @@
 import torch
 from torch import nn, Tensor
-from torch_scatter import scatter_max
 import torch.nn.functional as F
 
 from .IHitSetEncoder import IHitSetEncoder
@@ -45,10 +44,14 @@ class PointNetEncoder(IHitSetEncoder):
         :param Tensor x_ind: The batch index tensor. Shape: `[num_hits]`.
         :return Tensor: The output tensor encoding information about the hit point-cloud.
         """
-        for layer in self.layers:
+        for layer in self.layers[:-1]:
             x = F.relu(layer(x))
+        x = self.layers[-1](x)
 
-        out = torch.zeros(x_ind.max().item() + 1, x.size(1), device=x.device)
-        out, _ = scatter_max(x, x_ind, dim=0, out=out)
+        out_size = x_ind.max().item() + 1
+        out = torch.full((out_size, x.size(1)), -float("inf"), device=x.device)
+
+        for i in range(out_size):
+            out[i] = x[x_ind == i].max(dim=0).values
 
         return out
