@@ -1,0 +1,20 @@
+{
+    "model": {
+        "encoder": "point_net",
+        "size_generator": "gaussian",
+        "set_generator": "none",
+        "time_step": "volume_layer",
+        "pairing_strategy": "kd_tree",
+        "coordinate_system": "cylindrical"
+    },
+    "training": {
+        "model_name": "9uk8isav",
+        "epochs": 100,
+        "batch_size": 2,
+        "device": "cuda",
+        "size_loss_weight": 0.25,
+        "optimizer_type": "Adam",
+        "scheduler_type": "CyclicLR",
+        "learning_rate": 1e-05
+    }
+}
