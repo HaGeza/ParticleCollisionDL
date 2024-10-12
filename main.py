@@ -102,7 +102,7 @@ def main():
     data_loader = CollisionEventLoader(
         os.path.join(root_dir, DATA_DIR, args.dataset),
         time_step,
-        args.batch_size,
+        int(args.batch_size),
         coordinate_system=args.coordinate_system,
         device=device,
     )
@@ -135,10 +135,7 @@ def main():
 
     # Train model
     trainer = Trainer(model, optimizer, scheduler, device, models_path=MODELS_DIR, results_path=RESULTS_DIR)
-    trainer.train(data_loader, args.epochs)
-
-    # Save model
-    torch.save(model.state_dict(), os.path.join(root_dir, "models", f"{model_name}.pth"))
+    trainer.train(data_loader, int(args.epochs))
 
 
 if __name__ == "__main__":

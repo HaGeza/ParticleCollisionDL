@@ -1,10 +1,12 @@
 import csv
+from datetime import datetime
 import json
 import os
 import random
 import re
 import string
 
+import numpy as np
 import torch
 from torch.nn import functional as F
 from torch.optim import lr_scheduler, Optimizer
@@ -108,15 +110,30 @@ class Trainer:
                 "optimizer_type": self.optimizer.__class__.__name__,
                 "scheduler_type": self.scheduler.__class__.__name__,
                 "learning_rate": self.optimizer.param_groups[0]["lr"],
+                "date": datetime.today().strftime("%Y:%m:%d_%H:%M:%S"),
             }
             json.dump({"model": model_info, "training": training_info}, f, indent=4)
 
         if not no_log:
             log_file = os.path.join(result_dir, "log.csv")
             with open(log_file, "w") as f:
-                csv.writer(f).writerow(
-                    ["epoch", "event", "t", "pred_size_min", "pred_size_max", "gt_size_min", "gt_size_max", "loss"]
-                )
+                row = ["epoch", "event", "t", "loss"]
+
+                if not self.model.use_shell_part_sizes:
+                    row += [f"pred_size_{i}" for i in range(data_loader.batch_size)]
+                    row += [f"gt_size_{i}" for i in range(data_loader.batch_size)]
+                    num_size_preds = data_loader.batch_size
+                else:
+                    max_num_parts = np.max(
+                        [
+                            self.model.time_step.get_num_shell_parts(t)
+                            for t in range(1, self.model.time_step.get_num_time_steps())
+                        ]
+                    )
+                    row += [f"pred_size_{i}_{j}" for i in range(data_loader.batch_size) for j in range(max_num_parts)]
+                    row += [f"gt_size_{i}_{j}" for i in range(data_loader.batch_size) for j in range(max_num_parts)]
+                    num_size_preds = data_loader.batch_size * max_num_parts
+                csv.writer(f).writerow(row)
             data_loader.return_event_ids = True
 
         min_loss = float("inf")
@@ -171,6 +188,14 @@ class Trainer:
 
                     loss_sum += loss.item()
 
+                    if not no_log:
+                        with open(log_file, "a") as f:
+                            row = [epoch, event_id, t, loss.item()]
+                            pred_size_flat = pred_size.view(-1).tolist()
+                            padding = [""] * (num_size_preds - len(pred_size_flat))
+                            row += pred_size_flat + padding + gt_size.view(-1).tolist()
+                            csv.writer(f).writerow(row)
+
                 self.scheduler.step()
 
                 torch.save(self.model.state_dict(), os.path.join(model_dir, f"latest.pth"))
@@ -178,18 +203,3 @@ class Trainer:
                 if loss_sum < min_loss:
                     min_loss = loss_sum
                     torch.save(self.model.state_dict(), os.path.join(model_dir, "min_loss.pth"))
-
-                if not no_log:
-                    with open(log_file, "a") as f:
-                        csv.writer(f).writerow(
-                            [
-                                epoch,
-                                event_id,
-                                t,
-                                pred_size.min().item(),
-                                pred_size.max().item(),
-                                gt_size.min().item(),
-                                gt_size.max().item(),
-                                loss.item(),
-                            ]
-                        )
