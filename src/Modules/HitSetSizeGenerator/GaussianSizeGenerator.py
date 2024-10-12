@@ -1,4 +1,4 @@
-from torch import nn, Tensor, randn
+from torch import nn, Tensor
 import torch
 from torch.nn import functional as F
 
@@ -16,6 +16,7 @@ class GaussianSizeGenerator(IHitSetSizeGenerator):
         input_dim: int = 16,
         hidden_dim: int = 2,
         num_layers: int = 2,
+        num_size_samples: int = 1,
         device: str = "cpu",
         size_scaler: int = 10000,
     ):
@@ -25,6 +26,7 @@ class GaussianSizeGenerator(IHitSetSizeGenerator):
         :param int input_dim: Input dimension of the of the NN.
         :param int hidden_dim: Hidden dimension of the NN.
         :param int num_layers: Number of layers in the NN.
+        :param int num_size_samples: Number of size samples to generate.
         :param str device: Device to run the NN on.
         :param int size_scaler: Multiplier for the predicted size.
         """
@@ -37,6 +39,7 @@ class GaussianSizeGenerator(IHitSetSizeGenerator):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
+        self.num_size_samples = num_size_samples
         self.size_scaler = size_scaler
 
         self.layers = nn.ModuleList()
@@ -44,7 +47,7 @@ class GaussianSizeGenerator(IHitSetSizeGenerator):
         for _ in range(1, num_layers - 1):
             self.layers.append(nn.Linear(hidden_dim, hidden_dim, device=device))
 
-        self.layers.append(nn.Linear(hidden_dim, 2, device=device))
+        self.layers.append(nn.Linear(hidden_dim, 2 * num_size_samples, device=device))
 
     def forward(self, z: Tensor, _gt: Tensor, _gt_ind: Tensor) -> Tensor:
         """
@@ -71,7 +74,7 @@ class GaussianSizeGenerator(IHitSetSizeGenerator):
             x = F.relu(layer(x))
         x = self.layers[-1](x)
 
-        mus, log_vars = x[:, 0], x[:, 1]
+        mus, log_vars = x[:, : self.num_size_samples], x[:, self.num_size_samples :]
 
-        samples = mus + torch.exp(0.5 * log_vars) * randn(x.size(0), device=self.device)
+        samples = mus + torch.exp(0.5 * log_vars) * torch.randn_like(log_vars, device=self.device)
         return samples * self.size_scaler

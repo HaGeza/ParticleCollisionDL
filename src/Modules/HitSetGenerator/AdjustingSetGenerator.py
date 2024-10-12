@@ -67,7 +67,7 @@ class AdjustingSetGenerator(IHitSetGenerator):
         """
 
         with torch.no_grad():
-            return self.time_step.place_hits(self.t, size, self.coordinate_system, device=self.device)
+            return self.time_step.place_hits(self.t + 1, size, self.coordinate_system, device=self.device)
 
     def generate(self, _x: Tensor, size: Tensor) -> Tensor:
         """
@@ -79,7 +79,7 @@ class AdjustingSetGenerator(IHitSetGenerator):
         """
 
         with torch.no_grad():
-            return self.time_step.place_hits(self.t, size, self.coordinate_system, device=self.device)
+            return self.time_step.place_hits(self.t + 1, size, self.coordinate_system, device=self.device)
 
     def calc_loss(self, pred_tensor: Tensor, gt_tensor: Tensor, pred_ind: Tensor, gt_ind: Tensor) -> Tensor:
         """

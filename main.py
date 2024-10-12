@@ -39,6 +39,12 @@ def main():
         choices=[e.value for e in CoordinateSystemEnum],
     )
     ap.add_argument(
+        "--no_shell_part_sizes",
+        action="store_true",
+        help="predict the size of the whole shell instead of its parts",
+        default=False,
+    )
+    ap.add_argument(
         "-t",
         "--time_step",
         default=TimeStepEnum.VOLUME_LAYER.value,
@@ -88,8 +94,9 @@ def main():
     )
 
     # Initialize time step
+    use_shell_part_sizes = not args.no_shell_part_sizes
     if args.time_step == TimeStepEnum.VOLUME_LAYER:
-        time_step = VLTimeStep()
+        time_step = VLTimeStep(use_shell_part_sizes=use_shell_part_sizes)
 
     # Initialize data loader
     data_loader = CollisionEventLoader(
@@ -108,6 +115,7 @@ def main():
         time_step,
         args.pairing_strategy,
         args.coordinate_system,
+        use_shell_part_sizes,
         device=device,
     )
 

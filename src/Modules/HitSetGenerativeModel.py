@@ -28,6 +28,7 @@ class HitSetGenerativeModel(nn.Module):
         time_step: ITimeStep,
         pairing_strategy_type: PairingStrategyEnum,
         coordinate_system: CoordinateSystemEnum,
+        use_shell_part_sizes: bool,
         device: str,
     ):
         """
@@ -35,11 +36,15 @@ class HitSetGenerativeModel(nn.Module):
         :param HitSetSizeGeneratorEnum size_generator_type: Type of size generator to use.
         :param HitSetGeneratorEnum set_generator_type: Type of set generator to use.
         :param ITimeStep time_step: Time step object used to create the pseudo-time-step and to pass to the set generator.
+        :param PairingStrategyEnum pairing_strategy_type: Pairing strategy to use for reconstruction loss.
+        :param CoordinateSystemEnum coordinate_system: Coordinate system to use for input.
+        :param str device: Device to run the model on.
         """
 
         super().__init__()
 
         self.time_step = time_step
+        self.use_shell_part_sizes = use_shell_part_sizes
         self.device = device
         self.to(device)
 
@@ -47,9 +52,10 @@ class HitSetGenerativeModel(nn.Module):
             "encoder": encoder_type.value,
             "size_generator": size_generator_type.value,
             "set_generator": set_generator_type.value,
-            "time_step": time_step.get_enum().value,
+            "time_step": time_step.__class__.__name__,
             "pairing_strategy": pairing_strategy_type.value,
             "coordinate_system": coordinate_system.value,
+            "using_shell_part_sizes": use_shell_part_sizes,
         }
 
         self.encoders = nn.ModuleList()
@@ -60,8 +66,9 @@ class HitSetGenerativeModel(nn.Module):
             if encoder_type == HitSetEncoderEnum.POINT_NET:
                 self.encoders.append(PointNetEncoder(device=device))
 
+            num_sizes = 1 if not use_shell_part_sizes else time_step.get_num_shell_parts(t + 1)
             if size_generator_type == HitSetSizeGeneratorEnum.GAUSSIAN:
-                self.size_generators.append(GaussianSizeGenerator(device=device))
+                self.size_generators.append(GaussianSizeGenerator(num_size_samples=num_sizes, device=device))
 
             if set_generator_type == HitSetGeneratorEnum.ADJUSTING:
                 self.set_generators.append(
@@ -126,6 +133,8 @@ class HitSetGenerativeModel(nn.Module):
 
         if self.set_generators[t - 1] is not None:
             size_loss = (torch.abs(pred_size - gt_size) * self.set_generators[t - 1].max_pair_loss).mean()
+            if used_size.dim() > 1:
+                used_size = used_size.sum(dim=1)
             pred_ind = torch.repeat_interleave(torch.arange(len(used_size), device=self.device), used_size)
             set_loss = self.set_generators[t - 1].calc_loss(pred_tensor, gt_tensor, pred_ind, gt_ind)
 

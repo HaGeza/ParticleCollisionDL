@@ -1,11 +1,12 @@
 import csv
-import glob
 import json
 import os
 import random
 import re
 import string
+
 import torch
+from torch.nn import functional as F
 from torch.optim import lr_scheduler, Optimizer
 
 from src.Util import MODELS_DIR, RESULTS_DIR
@@ -136,7 +137,21 @@ class Trainer:
                     gt_tensor = hits_tensor_list[t]
                     gt_batch_index = batch_index_list[t].detach()
                     with torch.no_grad():
-                        _, gt_size = torch.unique(gt_batch_index, return_counts=True)
+                        if self.model.use_shell_part_sizes:
+                            part_ids = self.model.time_step.assign_to_shell_parts(
+                                gt_tensor, t, data_loader.coordinate_system
+                            )
+                            num_parts = self.model.time_step.get_num_shell_parts(t)
+                            batch_size = data_loader.batch_size
+
+                            batch_ring_ids = gt_batch_index * num_parts + part_ids
+                            _, gt_size = torch.unique(batch_ring_ids, return_counts=True)
+
+                            gt_size = F.pad(gt_size, (0, num_parts * batch_size - gt_size.size(0)), value=0)
+                            gt_size = gt_size.view(batch_size, num_parts)
+                        else:
+                            _, gt_size = torch.unique(gt_batch_index, return_counts=True)
+
                         gt_size = gt_size.float().to(self.device)
 
                     self.optimizer.zero_grad()
