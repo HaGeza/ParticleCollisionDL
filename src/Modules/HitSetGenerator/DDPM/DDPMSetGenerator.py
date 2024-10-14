@@ -5,6 +5,7 @@ from src.Modules.HitSetProcessor import IHitSetProcessor
 from src.Pairing import PairingStrategyEnum
 from src.TimeStep.ForAdjusting import ITimeStepForAdjusting
 from src.Util import CoordinateSystemEnum
+from src.Util.Distributions import log_normal_diag, log_standard_normal
 from ..AdjustingSetGenerator import AdjustingSetGenerator
 from .BetaSchedules import IBetaSchedule
 
@@ -61,6 +62,19 @@ class DDPMSetGenerator(AdjustingSetGenerator):
 
         return torch.sqrt(1.0 - self.betas[step]) * x + torch.sqrt(self.betas[step]) * torch.rand_like(x)
 
+    def _log_posterior(self, latent: Tensor, beta_ind: int) -> Tensor:
+        """
+        Compute log posterior.
+
+        :param Tensor latent: Latent tensor. Shape `[encoding_dim]`
+        :param int beta_ind: Index of the beta value.
+        :return Tensor: Log posterior
+        """
+
+        return log_normal_diag(
+            latent, torch.sqrt(1.0 - self.betas[beta_ind]) * latent, torch.log(self.betas[beta_ind])
+        )
+
     def forward(self, z: Tensor, gt: Tensor, pred_ind: Tensor, gt_ind: Tensor, size: Tensor) -> tuple[Tensor, Tensor]:
         """
         Forward pass of the adjusting set generator.
@@ -77,7 +91,7 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         initial_points = super().generate(z, size)
 
         pairs, num_pairs_per_batch = self.pairing_strategy.create_pairs(initial_points, gt, pred_ind, gt_ind)
-        diffs = initial_points[pairs[:, 0]] - gt[pairs[:, 1]]
+        diffs = gt[pairs[:, 1]] - initial_points[pairs[:, 0]]
 
         # create noisy steps
         latents = [self._add_noise(diffs, 0)]
@@ -94,11 +108,20 @@ class DDPMSetGenerator(AdjustingSetGenerator):
             mus[i], log_vars[i] = out[:, : latents[i].size(1)], out[:, latents[i].size(1) :]
 
         # predict final mu with final denoising network
-        pred_diff = self.decoder(torch.cat([zs, latents[0]], dim=1))
+        pred_diffs = self.decoder(torch.cat([zs, latents[0]], dim=1))
 
-        # calculate ELBO according to 2AMU20/A3
+        # calculate ELBO
+        RE = (log_standard_normal(diffs - pred_diffs)).sum(dim=1)
+
+        KL = (self._log_posterior(latents[-1], -1) - log_standard_normal(latents[-1])).sum(dim=1)
+        for i in range(self.num_steps - 1, -1, -1):
+            KL_i = self._log_posterior(latents[i], i) - log_normal_diag(latents[i], mus[i], log_vars[i])
+            KL = KL + KL_i.sum(dim=1)
+
+        loss = -(RE - KL).mean()
 
         # return the generated hit set and the loss
+        return initial_points[pairs[:, 0]] + pred_diffs, loss
 
     def generate(self, z: Tensor, size: Tensor) -> Tensor:
         """

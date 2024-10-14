@@ -127,7 +127,7 @@ class VLTimeStep(ITimeStepForAdjusting):
 
         # Generate and return the hit set using the placement strategy, as a tensor of shape `[sum(size), 3]`
         hits = self.placement_strategy.place_points_in_rings(rings, ring_capacities, coordinate_system)
-        return self.normalize_hit_tensor(hits.to(torch.double), t) if self.normalize_hits else hits
+        return self.normalize_hit_tensor(hits, t) if self.normalize_hits else hits
 
     def normalize_hit_tensor(self, hit_tensor: Tensor, t: int) -> Tensor:
         """
