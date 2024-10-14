@@ -1,17 +1,11 @@
-import torch
 from torch import Tensor
-
+from src.Pairing import PairingStrategyEnum
 from src.TimeStep.ForAdjusting import ITimeStepForAdjusting
-from src.Pairing import PairingStrategyEnum, IPairingStrategy, GreedyStrategy, RepeatedKDTreeStrategy
 from src.Util import CoordinateSystemEnum
-from .IHitSetGenerator import IHitSetGenerator
+from .AdjustingSetGenerator import AdjustingSetGenerator
 
 
-class AdjustingSetGenerator(IHitSetGenerator):
-    """
-    Class for generating placing hits according to some strategy, and learning to adjust them.
-    """
-
+class DDPMSetGenerator(AdjustingSetGenerator):
     def __init__(
         self,
         t: int,
@@ -34,28 +28,17 @@ class AdjustingSetGenerator(IHitSetGenerator):
         :param str device: Device to load the data on.
         """
 
-        super().__init__()
+        super().__init__(
+            t,
+            time_step,
+            pairing_strategy_type,
+            coordinate_system,
+            encoding_dim,
+            hit_dim,
+            device,
+        )
 
-        self.device = device
-        self.to(device)
-
-        self.t = t
-        self.time_step = time_step
-        self.coordinate_system = coordinate_system
-        self.encoding_dim = encoding_dim
-        self.hit_dim = hit_dim
-
-        self.pairing_strategy: IPairingStrategy = None
-        if pairing_strategy_type == PairingStrategyEnum.GREEDY:
-            self.pairing_strategy = GreedyStrategy()
-        elif pairing_strategy_type == PairingStrategyEnum.KD_TREE:
-            self.pairing_strategy = RepeatedKDTreeStrategy()
-        else:
-            raise ValueError(f"Unknown pairing strategy: {pairing_strategy_type}")
-
-        self.max_pair_loss = time_step.get_max_squared_distance()
-
-    def forward(self, _x: Tensor, _gt: Tensor, _gt_ind: Tensor, size: Tensor) -> Tensor | tuple[Tensor, Tensor]:
+    def forward(self, _x: Tensor, _gt: Tensor, _gt_ind: Tensor, size: Tensor) -> tuple[Tensor, Tensor]:
         """
         Forward pass of the adjusting set generator.
 
@@ -63,10 +46,22 @@ class AdjustingSetGenerator(IHitSetGenerator):
         :param Tensor _gt: Ground truth tensor. Shape `[num_hits_next, hit_dim]`
         :param Tensor _gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`
         :param Tensor size: Size of the generated hit point-cloud.
-        :return: Generated hit set (Shape `[sum(size), hit_dim]`), or a tuple of the generated hit set and the loss
+        :return: Generated hit set (Shape `[sum(size), hit_dim]`) and loss
         """
 
-        return self.generate(_x, size)
+        initial_points = super().generate(_x, size)
+
+        # create pairs
+
+        # create noisy steps
+
+        # predict mus and log_vars with denoising networks
+
+        # predict final mu with final denoising network
+
+        # calculate ELBO according to 2AMU20/A3
+
+        # return the generated hit set and the loss
 
     def generate(self, _x: Tensor, size: Tensor) -> Tensor:
         """
@@ -77,12 +72,22 @@ class AdjustingSetGenerator(IHitSetGenerator):
         :return: Generated hit set. Shape `[sum(size), hit_dim]`
         """
 
-        with torch.no_grad():
-            return self.time_step.place_hits(self.t + 1, size, self.coordinate_system, device=self.device)
+        initial_points = super().generate(_x, size)
+
+        # create pairs
+
+        # put standard normal around paired predicted points
+
+        # denoise movement distributions
+
+        # move points according to sample from denoised movement distributions
+
+        # return the generated hit set
 
     def calc_loss(self, pred_tensor: Tensor, gt_tensor: Tensor, pred_ind: Tensor, gt_ind: Tensor) -> Tensor:
         """
-        Calculate the loss of the adjusting set generator.
+        Not implemented, as calculating the KL terms of the loss requires the intermediate steps of
+        the forward and reverse processes.
 
         :param Tensor pred_tensor: Predicted hit tensor. Shape `[num_hits_pred, hit_dim]`
         :param Tensor gt_tensor: Ground truth hit tensor. Shape `[num_hits_act, hit_dim]`
@@ -90,4 +95,4 @@ class AdjustingSetGenerator(IHitSetGenerator):
         "param Tensor gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_act]`
         """
 
-        return self.pairing_strategy.calculate_loss(pred_tensor, gt_tensor, pred_ind, gt_ind, self.coordinate_system)
+        raise NotImplementedError("Loss calculation for DDPM set generator is done in the forward pass.")

@@ -173,12 +173,20 @@ class Trainer:
 
                     self.optimizer.zero_grad()
 
-                    pred_size, used_size, pred_tensor = self.model(
+                    pred_size, used_size, pred_tensor, loss = self.model(
                         in_tensor, gt_tensor, in_batch_index, gt_batch_index, t
                     )
-                    loss = self.model.calc_loss(
-                        pred_size, used_size, pred_tensor, gt_size, gt_tensor, gt_batch_index, t, self.size_loss_weight
-                    )
+                    if loss is None:
+                        loss = self.model.calc_loss(
+                            pred_size,
+                            used_size,
+                            pred_tensor,
+                            gt_size,
+                            gt_tensor,
+                            gt_batch_index,
+                            t,
+                            self.size_loss_weight,
+                        )
 
                     loss.backward()
                     self.optimizer.step()

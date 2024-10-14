@@ -26,7 +26,7 @@ class IPairingStrategy:
 
         raise NotImplementedError
 
-    def _create_pairs(self, pred: Tensor, gt: Tensor, pred_ind: Tensor, gt_ind: Tensor) -> Tensor:
+    def create_pairs(self, pred: Tensor, gt: Tensor, pred_ind: Tensor, gt_ind: Tensor) -> Tensor:
         """
         Create pairs of generated and ground-truth hits.
 

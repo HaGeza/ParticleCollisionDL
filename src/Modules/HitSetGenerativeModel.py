@@ -90,19 +90,24 @@ class HitSetGenerativeModel(nn.Module):
         """
 
         z = self.encoders[t - 1](x, x_ind)
-        size = self.size_generators[t - 1](z, gt, gt_ind)
+        pred_size = self.size_generators[t - 1](z, gt, gt_ind)
         with torch.no_grad():
-            size_int = torch.clamp(size, min=0.0).round().int()
+            used_size = torch.clamp(pred_size, min=0.0).round().int()
 
-        return (
-            size,
-            size_int,
-            (
-                self.set_generators[t - 1](z, gt, gt_ind, size_int)
-                if self.set_generators[t - 1] is not None
-                else Tensor([])
-            ),
+        set_generator_result = (
+            self.set_generators[t - 1](z, gt, gt_ind, used_size)
+            if self.set_generators[t - 1] is not None
+            else Tensor([])
         )
+
+        # Check if loss is already in set result
+        if type(set_generator_result) is tuple and len(set_generator_result) == 2:
+            pred_set, loss = set_generator_result
+        else:
+            pred_set = set_generator_result
+            loss = None
+
+        return pred_size, used_size, pred_set, loss
 
     def calc_loss(
         self,
@@ -138,13 +143,13 @@ class HitSetGenerativeModel(nn.Module):
             pred_ind = torch.repeat_interleave(torch.arange(len(used_size), device=self.device), used_size)
             set_loss = self.set_generators[t - 1].calc_loss(pred_tensor, gt_tensor, pred_ind, gt_ind)
 
-            print(f"t= {t}: Size loss: {size_loss.item()}, Set loss: {set_loss.item()}")
+            # print(f"t= {t}: Size loss: {size_loss.item()}, Set loss: {set_loss.item()}")
 
             return size_loss * size_loss_ratio + set_loss * (1 - size_loss_ratio)
         else:
             size_loss = F.mse_loss(pred_size, gt_size)
 
-            print(f"t= {t}: {pred_size.mean()} vs {gt_size.mean()} --> Size loss: {size_loss.item()}")
+            # print(f"t= {t}: {pred_size.mean()} vs {gt_size.mean()} --> Size loss: {size_loss.item()}")
 
             return size_loss
 
