@@ -55,39 +55,30 @@ class AdjustingSetGenerator(IHitSetGenerator):
 
         self.max_pair_loss = time_step.get_max_squared_distance()
 
-    def forward(self, _x: Tensor, _gt: Tensor, _gt_ind: Tensor, size: Tensor) -> Tensor | tuple[Tensor, Tensor]:
+    def forward(self, z: Tensor, gt: Tensor, pred_ind: Tensor, gt_ind: Tensor, size: Tensor) -> tuple[Tensor, Tensor]:
         """
         Forward pass of the adjusting set generator.
 
-        :param Tensor _x: Input tensor. Shape `[encoding_dim]`
-        :param Tensor _gt: Ground truth tensor. Shape `[num_hits_next, hit_dim]`
-        :param Tensor _gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`
-        :param Tensor size: Size of the generated hit point-cloud.
-        :return: Generated hit set (Shape `[sum(size), hit_dim]`), or a tuple of the generated hit set and the loss
+        :param Tensor z: Encoded input hit set. Shape `[encoding_dim]`
+        :param Tensor gt: Ground truth tensor. Shape `[num_hits_next, hit_dim]`
+        :param Tensor pred_ind: Predicted hit batch index tensor. Shape `[num_hits_pred]`.
+        :param Tensor gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`.
+        :param Tensor used_size: Size of the generated hit point-cloud.
+            Shape `[num_batches]` or `[num_batches, num_parts_next]`.
+        :return: Generated hit set (Shape `[sum(size), hit_dim]`), and the loss
         """
 
-        return self.generate(_x, size)
+        pred = self.generate(z, size)
+        return pred, self.pairing_strategy.calculate_loss(pred, gt, pred_ind, gt_ind, self.coordinate_system)
 
-    def generate(self, _x: Tensor, size: Tensor) -> Tensor:
+    def generate(self, z: Tensor, size: Tensor) -> Tensor:
         """
         Generate a hit set.
 
-        :param Tensor _x: (UNUSED) Input tensor. Shape `[encoding_dim]`
+        :param Tensor z: Input tensor. Shape `[encoding_dim]`
         :param Tensor size: Size of the generated hit point-cloud.
         :return: Generated hit set. Shape `[sum(size), hit_dim]`
         """
 
         with torch.no_grad():
             return self.time_step.place_hits(self.t + 1, size, self.coordinate_system, device=self.device)
-
-    def calc_loss(self, pred_tensor: Tensor, gt_tensor: Tensor, pred_ind: Tensor, gt_ind: Tensor) -> Tensor:
-        """
-        Calculate the loss of the adjusting set generator.
-
-        :param Tensor pred_tensor: Predicted hit tensor. Shape `[num_hits_pred, hit_dim]`
-        :param Tensor gt_tensor: Ground truth hit tensor. Shape `[num_hits_act, hit_dim]`
-        :param Tensor pred_ind: Predicted hit batch index tensor. Shape `[num_hits_pred]`
-        "param Tensor gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_act]`
-        """
-
-        return self.pairing_strategy.calculate_loss(pred_tensor, gt_tensor, pred_ind, gt_ind, self.coordinate_system)

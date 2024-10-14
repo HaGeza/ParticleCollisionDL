@@ -139,12 +139,11 @@ class Trainer:
         min_loss = float("inf")
 
         self.model.train()
+
+        # Main training loop
         for epoch in range(epochs):
             for entry in data_loader:
-                if not no_log:
-                    hits_tensor_list, batch_index_list, event_id = entry
-                else:
-                    hits_tensor_list, batch_index_list = entry
+                hits_tensor_list, batch_index_list, event_id = entry
 
                 in_tensor = hits_tensor_list[0]
                 in_batch_index = batch_index_list[0].detach()
@@ -153,16 +152,18 @@ class Trainer:
                 for t in range(1, self.model.time_step.get_num_time_steps()):
                     gt_tensor = hits_tensor_list[t]
                     gt_batch_index = batch_index_list[t].detach()
+
+                    # Calculate ground truth sizes for shells / shell-parts
                     with torch.no_grad():
                         if self.model.use_shell_part_sizes:
                             part_ids = self.model.time_step.assign_to_shell_parts(
-                                gt_tensor, t, data_loader.coordinate_system
+                                gt_tensor, t, self.model.coordinate_system
                             )
                             num_parts = self.model.time_step.get_num_shell_parts(t)
                             batch_size = data_loader.batch_size
 
-                            batch_ring_ids = gt_batch_index * num_parts + part_ids
-                            _, gt_size = torch.unique(batch_ring_ids, return_counts=True)
+                            batch_part_ids = gt_batch_index * num_parts + part_ids
+                            _, gt_size = torch.unique(batch_part_ids, return_counts=True)
 
                             gt_size = F.pad(gt_size, (0, num_parts * batch_size - gt_size.size(0)), value=0)
                             gt_size = gt_size.view(batch_size, num_parts)
@@ -173,20 +174,9 @@ class Trainer:
 
                     self.optimizer.zero_grad()
 
-                    pred_size, used_size, pred_tensor, loss = self.model(
-                        in_tensor, gt_tensor, in_batch_index, gt_batch_index, t
+                    pred_size, _pred_tensor, loss = self.model(
+                        in_tensor, gt_tensor, in_batch_index, gt_batch_index, gt_size, t
                     )
-                    if loss is None:
-                        loss = self.model.calc_loss(
-                            pred_size,
-                            used_size,
-                            pred_tensor,
-                            gt_size,
-                            gt_tensor,
-                            gt_batch_index,
-                            t,
-                            self.size_loss_weight,
-                        )
 
                     loss.backward()
                     self.optimizer.step()

@@ -38,18 +38,20 @@ class DDPMSetGenerator(AdjustingSetGenerator):
             device,
         )
 
-    def forward(self, _x: Tensor, _gt: Tensor, _gt_ind: Tensor, size: Tensor) -> tuple[Tensor, Tensor]:
+    def forward(self, z: Tensor, gt: Tensor, pred_ind: Tensor, gt_ind: Tensor, size: Tensor) -> tuple[Tensor, Tensor]:
         """
         Forward pass of the adjusting set generator.
 
-        :param Tensor _x: Input tensor. Shape `[encoding_dim]`
-        :param Tensor _gt: Ground truth tensor. Shape `[num_hits_next, hit_dim]`
-        :param Tensor _gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`
-        :param Tensor size: Size of the generated hit point-cloud.
-        :return: Generated hit set (Shape `[sum(size), hit_dim]`) and loss
+        :param Tensor z: Encoded input hit set. Shape `[encoding_dim]`
+        :param Tensor gt: Ground truth tensor. Shape `[num_hits_next, hit_dim]`
+        :param Tensor pred_ind: Predicted hit batch index tensor. Shape `[num_hits_pred]`.
+        :param Tensor gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`.
+        :param Tensor size: Size of the hit point-cloud to generate. Shape `[num_batches]`
+            or `[num_batches, num_parts_next]`.
+        :return: Generated hit set (Shape `[sum(size), hit_dim]`), and the loss
         """
 
-        initial_points = super().generate(_x, size)
+        initial_points = super().generate(z, size)
 
         # create pairs
 
@@ -63,16 +65,16 @@ class DDPMSetGenerator(AdjustingSetGenerator):
 
         # return the generated hit set and the loss
 
-    def generate(self, _x: Tensor, size: Tensor) -> Tensor:
+    def generate(self, z: Tensor, size: Tensor) -> Tensor:
         """
         Generate a hit set.
 
-        :param Tensor _x: (UNUSED) Input tensor. Shape `[encoding_dim]`
+        :param Tensor z: (UNUSED) Input tensor. Shape `[encoding_dim]`
         :param Tensor size: Size of the generated hit point-cloud.
         :return: Generated hit set. Shape `[sum(size), hit_dim]`
         """
 
-        initial_points = super().generate(_x, size)
+        initial_points = super().generate(z, size)
 
         # create pairs
 
@@ -83,16 +85,3 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         # move points according to sample from denoised movement distributions
 
         # return the generated hit set
-
-    def calc_loss(self, pred_tensor: Tensor, gt_tensor: Tensor, pred_ind: Tensor, gt_ind: Tensor) -> Tensor:
-        """
-        Not implemented, as calculating the KL terms of the loss requires the intermediate steps of
-        the forward and reverse processes.
-
-        :param Tensor pred_tensor: Predicted hit tensor. Shape `[num_hits_pred, hit_dim]`
-        :param Tensor gt_tensor: Ground truth hit tensor. Shape `[num_hits_act, hit_dim]`
-        :param Tensor pred_ind: Predicted hit batch index tensor. Shape `[num_hits_pred]`
-        "param Tensor gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_act]`
-        """
-
-        raise NotImplementedError("Loss calculation for DDPM set generator is done in the forward pass.")

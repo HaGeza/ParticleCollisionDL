@@ -92,7 +92,7 @@ class IPairingStrategy:
         pred_cart = convert_to_cartesian(pred, coordinate_system)
         gt_cart = convert_to_cartesian(gt, coordinate_system)
 
-        pairs = self._create_pairs(pred_cart, gt_cart, pred_ind, gt_ind)
+        pairs = self.create_pairs(pred_cart, gt_cart, pred_ind, gt_ind)
         diffs = torch.sum((pred_cart[pairs[:, 0]] - gt_cart[pairs[:, 1]]) ** 2, dim=1)
         if reduction == "mean":
             return diffs.mean() if len(diffs) > 0 else torch.tensor(0.0, device=pred.device)

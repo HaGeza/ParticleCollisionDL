@@ -29,7 +29,8 @@ class HitSetGenerativeModel(nn.Module):
         pairing_strategy_type: PairingStrategyEnum,
         coordinate_system: CoordinateSystemEnum,
         use_shell_part_sizes: bool,
-        device: str,
+        size_loss_ratio: float = 0.25,
+        device: str = "cpu",
     ):
         """
         :param HitSetEncoderEnum encoder_type: Type of encoder to use.
@@ -38,13 +39,17 @@ class HitSetGenerativeModel(nn.Module):
         :param ITimeStep time_step: Time step object used to create the pseudo-time-step and to pass to the set generator.
         :param PairingStrategyEnum pairing_strategy_type: Pairing strategy to use for reconstruction loss.
         :param CoordinateSystemEnum coordinate_system: Coordinate system to use for input.
+        :param bool use_shell_part_sizes: Whether to use shell part sizes for the loss calculation.
+        :param float size_loss_ratio: Ratio of the size loss to the set loss.
         :param str device: Device to run the model on.
         """
 
         super().__init__()
 
         self.time_step = time_step
+        self.coordinate_system = coordinate_system
         self.use_shell_part_sizes = use_shell_part_sizes
+        self.size_loss_ratio = size_loss_ratio
         self.device = device
         self.to(device)
 
@@ -77,7 +82,9 @@ class HitSetGenerativeModel(nn.Module):
             elif set_generator_type == HitSetGeneratorEnum.NONE:
                 self.set_generators.append(None)
 
-    def forward(self, x: Tensor, gt: Tensor, x_ind: Tensor, gt_ind: Tensor, t: int) -> tuple[Tensor, Tensor, Tensor]:
+    def forward(
+        self, x: Tensor, gt: Tensor, x_ind: Tensor, gt_ind: Tensor, gt_size: Tensor, t: int
+    ) -> tuple[Tensor, Tensor, Tensor]:
         """
         Forward pass of the hit-set generative model.
 
@@ -85,73 +92,33 @@ class HitSetGenerativeModel(nn.Module):
         :param Tensor gt: Ground truth hit tensor. Shape `[num_hits_next, hit_dim]`
         :param Tensor x_ind: Input hit batch index tensor. Shape `[num_hits]`
         :param Tensor gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`
+        :param Tensor gt_size: Ground truth hit set size tensor. Shape `[num_batches]`
+            or `[num_batches, num_parts_next]`
         :return tuple[Tensor, Tensor, Tensor]: Tuple containing the generated hit set size,
-            the hit set sizes used for set generation (rounded to integers), and the generated hit set.
+            the generated hit set and the loss.
         """
 
         z = self.encoders[t - 1](x, x_ind)
         pred_size = self.size_generators[t - 1](z, gt, gt_ind)
-        with torch.no_grad():
-            used_size = torch.clamp(pred_size, min=0.0).round().int()
-
-        set_generator_result = (
-            self.set_generators[t - 1](z, gt, gt_ind, used_size)
-            if self.set_generators[t - 1] is not None
-            else Tensor([])
-        )
-
-        # Check if loss is already in set result
-        if type(set_generator_result) is tuple and len(set_generator_result) == 2:
-            pred_set, loss = set_generator_result
-        else:
-            pred_set = set_generator_result
-            loss = None
-
-        return pred_size, used_size, pred_set, loss
-
-    def calc_loss(
-        self,
-        pred_size: Tensor,
-        used_size: Tensor,
-        pred_tensor: Tensor,
-        gt_size: Tensor,
-        gt_tensor: Tensor,
-        gt_ind: Tensor,
-        t: int,
-        size_loss_ratio: float = 0.25,
-    ) -> Tensor:
-        """
-        Calculate the loss of the hit-set generative model. The loss consists of two parts:
-        1. Loss incurred by the size prediction (max_pair_loss for each missing / additional predicted hit)
-        2. Loss incurred by the set prediction (uses the loss function of the set generator).
-
-        :param Tensor pred_size: Predicted hit set size tensor. Shape `[batch_num]`
-        :param Tensor used_size: Hit set size used for set generation (rounded to integers). Shape `[batch_num]`
-        :param Tensor pred_tensor: Predicted hit tensor. Shape `[num_hits_next, hit_dim]`
-        :param Tensor gt_size: Ground truth hit set size tensor. Shape `[batch_num]`
-        :param Tensor gt_tensor: Ground truth hit tensor. Shape `[num_hits_next, hit_dim]`
-        :param Tensor gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`
-        :param int t: Time step to calculate the loss for.
-        :param float size_loss_ratio: Ratio of the size loss to the set loss. Unused if no set generator is defined.
-        :return: Loss tensor.
-        """
 
         if self.set_generators[t - 1] is not None:
+            # Size loss is the average number of missing / additional hits per batch, times the max pair loss
             size_loss = (torch.abs(pred_size - gt_size) * self.set_generators[t - 1].max_pair_loss).mean()
-            if used_size.dim() > 1:
-                used_size = used_size.sum(dim=1)
-            pred_ind = torch.repeat_interleave(torch.arange(len(used_size), device=self.device), used_size)
-            set_loss = self.set_generators[t - 1].calc_loss(pred_tensor, gt_tensor, pred_ind, gt_ind)
 
-            # print(f"t= {t}: Size loss: {size_loss.item()}, Set loss: {set_loss.item()}")
+            # Calculate the used size for set generation
+            with torch.no_grad():
+                used_size = torch.clamp(pred_size, min=0.0).round().int()
 
-            return size_loss * size_loss_ratio + set_loss * (1 - size_loss_ratio)
+            # Calculate the indices for the pairing strategy
+            flat_size = used_size if used_size.dim() == 1 else used_size.sum(dim=1)
+            pred_ind = torch.repeat_interleave(torch.arange(len(flat_size), device=self.device), flat_size)
+
+            pred_hits, set_loss = self.set_generators[t - 1](z, gt, pred_ind, gt_ind, used_size)
+            loss = size_loss * self.size_loss_ratio + set_loss * (1 - self.size_loss_ratio)
         else:
-            size_loss = F.mse_loss(pred_size, gt_size)
+            pred_hits, loss = Tensor([]), F.mse_loss(pred_size, gt_size)
 
-            # print(f"t= {t}: {pred_size.mean()} vs {gt_size.mean()} --> Size loss: {size_loss.item()}")
-
-            return size_loss
+        return pred_size, pred_hits, loss
 
     def generate(self, x: Tensor, x_ind: Tensor, t: int) -> Tensor | None:
         """

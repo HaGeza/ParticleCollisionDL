@@ -119,12 +119,6 @@ def main():
         device=device,
     )
 
-    # Determine model name
-    date = datetime.datetime.now().strftime("%Y:%m:%d_%H:%M:%S")
-    model_name = (
-        f"{args.encoder.value}-{args.size_generator.value}-{args.set_generator.value}-{args.time_step.value}-{date}"
-    )
-
     # Initialize optimizer
     lr = float(args.lr)
     optimizer = Adam(model.parameters(), lr=lr)
