@@ -26,6 +26,7 @@ class CollisionEventLoader:
         batch_size: int,
         hits_cols: list[str] = ["x", "y", "z"],
         coordinate_system: CoordinateSystemEnum = CoordinateSystemEnum.CYLINDRICAL,
+        normalize_hits: bool = True,
         device: str = "cpu",
     ):
         """
@@ -34,6 +35,7 @@ class CollisionEventLoader:
         :param int batch_size: Batch size
         :param list[str] hits_cols: List of columns to be returned from the hits `DataFrame`
         :param CoordinateSystemEnum coordinate_system: Coordinate system to use
+        :param bool normalize_hits: Whether to normalize the hit tensor
         :param str device: Device to load the data on
         """
 
@@ -44,6 +46,7 @@ class CollisionEventLoader:
         self.time_step = time_step
         self.num_t = time_step.get_num_time_steps()
         self.coordinate_system = coordinate_system
+        self.normalize_hits = normalize_hits
         self.device = device
 
     def _get_t_hit_tensor(self, grouped_hits: DataFrameGroupBy, t: int) -> torch.Tensor:
@@ -60,7 +63,8 @@ class CollisionEventLoader:
             dtype=torch.float32,
             device=self.device,
         )
-        hit_tensor = self.time_step.normalize_hit_tensor(hit_tensor, t)
+        if self.normalize_hits:
+            hit_tensor = self.time_step.normalize_hit_tensor(hit_tensor, t)
 
         if self.coordinate_system == CoordinateSystemEnum.CYLINDRICAL:
             angles = torch.atan2(hit_tensor[:, 1], hit_tensor[:, 0])

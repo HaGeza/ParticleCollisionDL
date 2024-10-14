@@ -15,15 +15,16 @@ class RepeatedKDTreeStrategy(IPairingStrategy):
     points remaining for the greedy-phase, time complexity is O(n log n).
     """
 
-    def __init__(self, min_kd_tree_points: int = 0, max_kd_tree_iter: int = 5):
+    def __init__(self, max_kd_tree_iter: int = 25, k: int = 10):
         """
         :param CoordinateSystemEnum coordinate_system: The coordinate system to use.
-        :param int min_kd_tree_points: Minimum number of points to use KD-tree for pairing.
         :param int max_kd_tree_iter: Maximum number of KD-tree iterations.
+        :param int k: Number of nearest neighbors to query. The pairs are formed by
+            randomly selecting one of the `k` nearest neighbors.
         """
 
-        self.min_kd_tree_points = min_kd_tree_points
         self.max_kd_tree_iter = max_kd_tree_iter
+        self.k = k
         self.fallback_strategy = GreedyStrategy()
 
     def create_pairs_in_batch(self, args: tuple[Tensor, Tensor, int, int]) -> Tensor:
@@ -49,9 +50,14 @@ class RepeatedKDTreeStrategy(IPairingStrategy):
         indices_pred = torch.arange(pred.size(0), device=pred.device)
         indices_gt = torch.arange(gt.size(0), device=pred.device)
 
-        while num_pairs_req > self.min_kd_tree_points and kd_iter < self.max_kd_tree_iter:
+        min_kd_tree_points = np.sqrt(num_pairs_req * np.log(num_pairs_req)) if num_pairs_req > 0 else 0
+
+        while num_pairs_req > min_kd_tree_points and kd_iter < self.max_kd_tree_iter:
             kd_tree = KDTree(gt[unused_gt].cpu().numpy())
-            _, selected_gt = kd_tree.query(pred[unused_pred].cpu().numpy(), k=1)
+            _, selected_gt = kd_tree.query(pred[unused_pred].cpu().numpy(), k=self.k)
+            neighbor_inds = np.random.randint(0, selected_gt.shape[1], size=selected_gt.shape[0])
+            selected_gt = selected_gt[np.arange(selected_gt.shape[0]), neighbor_inds]
+
             selected_gt, selected_pred = np.unique(selected_gt.flatten(), return_index=True)
 
             selected_pred = indices_pred[unused_pred][selected_pred]

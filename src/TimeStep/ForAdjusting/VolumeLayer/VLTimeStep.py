@@ -1,6 +1,5 @@
-from src.TimeStep.TimeStepEnum import TimeStepEnum
 from src.TimeStep.ForAdjusting import ITimeStepForAdjusting
-from src.TimeStep.ForAdjusting.PlacementStrategy import IPlacementStrategy, SqueezedSinusoidStrategy
+from src.TimeStep.ForAdjusting.PlacementStrategy import IPlacementStrategy, SinusoidStrategy
 from src.Util import CoordinateSystemEnum
 from .VLRings import VL_TO_RING
 from .VLMaps import get_volume_layer_to_t, get_t_to_volume_layers
@@ -18,18 +17,23 @@ class VLTimeStep(ITimeStepForAdjusting):
     def __init__(
         self,
         map_index: int = 0,
-        placement_strategy: IPlacementStrategy = SqueezedSinusoidStrategy(),
+        placement_strategy: IPlacementStrategy = SinusoidStrategy(),
         use_shell_part_sizes: bool = True,
+        normalize_hits: bool = True,
     ):
         """
         :param int map_index: The index of the volume layer to time-step mapping to use.
         :param IPlacementStrategy placement_strategy: The placement strategy to use.
+        :param bool use_shell_part_sizes: Whether to use the shell part sizes for hit placement, or
+            calculate the part sizes based on the volume layer sizes.
+        :param bool normalize_hits: Whether to normalize the hits.
         """
 
         self.vl_to_t, self.num_t = get_volume_layer_to_t(map_index)
         self.t_to_vls = get_t_to_volume_layers(self.vl_to_t, self.num_t)
         self.placement_strategy = placement_strategy
         self.use_shell_part_sizes = use_shell_part_sizes
+        self.normalize_hits = normalize_hits
 
         self.vl_scales = [0] * self.num_t
         for t in range(self.num_t):
@@ -89,7 +93,13 @@ class VLTimeStep(ITimeStepForAdjusting):
 
         return rings
 
-    def place_hits(self, t: int, size: Tensor, coordinate_system: CoordinateSystemEnum, device: str = "cpu") -> Tensor:
+    def place_hits(
+        self,
+        t: int,
+        size: Tensor,
+        coordinate_system: CoordinateSystemEnum,
+        device: str = "cpu",
+    ) -> Tensor:
         """
         Places hits in the detector for a given time-step.
 
@@ -117,7 +127,7 @@ class VLTimeStep(ITimeStepForAdjusting):
 
         # Generate and return the hit set using the placement strategy, as a tensor of shape `[sum(size), 3]`
         hits = self.placement_strategy.place_points_in_rings(rings, ring_capacities, coordinate_system)
-        return self.normalize_hit_tensor(hits, t)
+        return self.normalize_hit_tensor(hits.to(torch.double), t) if self.normalize_hits else hits
 
     def normalize_hit_tensor(self, hit_tensor: Tensor, t: int) -> Tensor:
         """
@@ -162,7 +172,7 @@ class VLTimeStep(ITimeStepForAdjusting):
         """
 
         if coordinate_system == CoordinateSystemEnum.CARTESIAN:
-            rs = torch.atan2(hit_tensor[:, 1], hit_tensor[:, 0])
+            rs = torch.sqrt(hit_tensor[:, 0] ** 2 + hit_tensor[:, 1] ** 2)
             zs = hit_tensor[:, 2]
         else:  # coordinate_system == CoordinateSystemEnum.CYLINDRICAL
             rs = hit_tensor[:, 0]
@@ -171,7 +181,9 @@ class VLTimeStep(ITimeStepForAdjusting):
         rs = rs.unsqueeze(1)
         zs = zs.unsqueeze(1)
 
-        rings = self._get_rings(t, hit_tensor.device).unsqueeze(0) / self.vl_scales[t]
+        rings = self._get_rings(t, hit_tensor.device).unsqueeze(0)
+        if self.normalize_hits:
+            rings = rings / self.vl_scales[t]
 
         # ring_dists has shape `[num_hits, num_rings]`, where the item `(i,j)`
         # contains the manhattan distance of the i'th hit to the j'th ring if
