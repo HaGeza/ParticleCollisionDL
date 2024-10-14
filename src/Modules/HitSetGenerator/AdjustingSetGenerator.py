@@ -18,8 +18,6 @@ class AdjustingSetGenerator(IHitSetGenerator):
         time_step: ITimeStepForAdjusting,
         pairing_strategy_type: PairingStrategyEnum,
         coordinate_system: CoordinateSystemEnum,
-        encoding_dim: int = 16,
-        hit_dim: int = 3,
         device: str = "cpu",
     ):
         """
@@ -42,8 +40,6 @@ class AdjustingSetGenerator(IHitSetGenerator):
         self.t = t
         self.time_step = time_step
         self.coordinate_system = coordinate_system
-        self.encoding_dim = encoding_dim
-        self.hit_dim = hit_dim
 
         self.pairing_strategy: IPairingStrategy = None
         if pairing_strategy_type == PairingStrategyEnum.GREEDY:

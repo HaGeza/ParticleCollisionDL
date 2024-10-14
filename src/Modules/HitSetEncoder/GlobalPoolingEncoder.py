@@ -39,3 +39,12 @@ class GlobalPoolingEncoder(IHitSetEncoder):
             out[i] = x[x_ind == i].max(dim=0).values
 
         return out
+
+    def get_encoding_dim(self) -> int:
+        """
+        Get the dimension of the encoding.
+
+        :return int: Dimension of the encoding.
+        """
+
+        return self.processor.get_output_dim()

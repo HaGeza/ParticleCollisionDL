@@ -13,7 +13,7 @@ class PointNetProcessor(IHitSetProcessor):
         self,
         input_dim: int = 3,
         hidden_dim: int = 16,
-        output_dim: int = 16,
+        output_dim: int = None,
         num_layers: int = 3,
         activation: callable = F.relu,
         device: str = "cpu",
@@ -23,7 +23,7 @@ class PointNetProcessor(IHitSetProcessor):
 
         :param int input_dim: The dimension of the input.
         :param int hidden_dim: The dimension of the hidden layer.
-        :param int output_dim: The dimension of the output.
+        :param int output_dim: The dimension of the output. if `None`, set equal to `hidden_dim`.
         :param int num_layers: The number of layers in the encoder.
         :param str device: The device to run the encoder on.
         """
@@ -32,7 +32,7 @@ class PointNetProcessor(IHitSetProcessor):
         self.num_layers = num_layers
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
-        self.output_dim = output_dim
+        self.output_dim = output_dim if output_dim is not None else hidden_dim
         self.activation = activation
         self.device = device
 
@@ -41,7 +41,7 @@ class PointNetProcessor(IHitSetProcessor):
         self.layers.append(nn.Linear(input_dim, hidden_dim, device=device))
         for _ in range(num_layers - 2):
             self.layers.append(nn.Linear(hidden_dim, hidden_dim, device=device))
-        self.layers.append(nn.Linear(hidden_dim, output_dim, device=device))
+        self.layers.append(nn.Linear(hidden_dim, self.output_dim, device=device))
 
     def forward(self, x: Tensor) -> Tensor:
         """

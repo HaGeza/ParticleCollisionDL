@@ -3,6 +3,8 @@ from torch import nn, Tensor
 import torch.nn.functional as F
 
 from src.Modules.HitSetEncoder import HitSetEncoderEnum, GlobalPoolingEncoder
+from src.Modules.HitSetGenerator.DDPM import DDPMSetGenerator
+from src.Modules.HitSetGenerator.DDPM.BetaSchedules import CosineBetaSchedule
 from src.Modules.HitSetProcessor import PointNetProcessor
 from src.Modules.HitSetSizeGenerator import GaussianSizeGenerator, HitSetSizeGeneratorEnum
 from src.Modules.HitSetGenerator import AdjustingSetGenerator, HitSetGeneratorEnum
@@ -31,6 +33,8 @@ class HitSetGenerativeModel(nn.Module):
         coordinate_system: CoordinateSystemEnum,
         use_shell_part_sizes: bool,
         size_loss_ratio: float = 0.25,
+        input_dim: int = 3,
+        encoding_dim: int = 16,
         device: str = "cpu",
     ):
         """
@@ -51,6 +55,8 @@ class HitSetGenerativeModel(nn.Module):
         self.coordinate_system = coordinate_system
         self.use_shell_part_sizes = use_shell_part_sizes
         self.size_loss_ratio = size_loss_ratio
+        self.input_dim = input_dim
+        self.encoding_dim = encoding_dim
         self.device = device
         self.to(device)
 
@@ -83,6 +89,28 @@ class HitSetGenerativeModel(nn.Module):
                 )
             elif set_generator_type == HitSetGeneratorEnum.NONE:
                 self.set_generators.append(None)
+            elif set_generator_type == HitSetGeneratorEnum.DDPM:
+                num_steps = 50
+                beta_schedule = CosineBetaSchedule(offset=0.002, num_steps=num_steps)
+                denoising_processors = [
+                    PointNetProcessor(input_dim=encoding_dim + input_dim, hidden_dim=2 * input_dim, device=device)
+                    for _ in range(num_steps)
+                ]
+                decoder = PointNetProcessor(input_dim=encoding_dim + input_dim, hidden_dim=input_dim, device=device)
+
+                self.set_generators.append(
+                    DDPMSetGenerator(
+                        t,
+                        time_step,
+                        pairing_strategy_type,
+                        coordinate_system,
+                        num_steps,
+                        beta_schedule,
+                        denoising_processors,
+                        decoder,
+                        device=device,
+                    )
+                )
 
     def forward(
         self, x: Tensor, gt: Tensor, x_ind: Tensor, gt_ind: Tensor, gt_size: Tensor, t: int

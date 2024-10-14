@@ -8,3 +8,4 @@ class HitSetGeneratorEnum(Enum):
 
     ADJUSTING = "adjusting"
     NONE = "none"
+    DDPM = "ddpm"

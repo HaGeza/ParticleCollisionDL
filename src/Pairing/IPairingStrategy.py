@@ -26,7 +26,7 @@ class IPairingStrategy:
 
         raise NotImplementedError
 
-    def create_pairs(self, pred: Tensor, gt: Tensor, pred_ind: Tensor, gt_ind: Tensor) -> Tensor:
+    def create_pairs(self, pred: Tensor, gt: Tensor, pred_ind: Tensor, gt_ind: Tensor) -> tuple[Tensor, Tensor]:
         """
         Create pairs of generated and ground-truth hits.
 
@@ -34,7 +34,9 @@ class IPairingStrategy:
         :param Tensor gt: Ground truth hit set. Shape `[num_hits_next, hit_dim]`
         :param Tensor pred_ind: Predicted hit batch index tensor. Shape `[num_hits]`
         :param Tensor gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`
-        :return Tensor: Pairing tensor. Shape `[sum(min(num_hits_batch_i, num_hits_next_batch_i)), 2]`
+        :return tuple[Tensor, Tensor]: A tuple containing two Tensors:
+            1. Pairing tensor. Shape `[sum(min(num_hits_batch_i, num_hits_next_batch_i)), 2]`
+            2. Number of pairs per batch. Shape `[num_batches]`
         """
 
         original_device = pred.device
@@ -67,7 +69,7 @@ class IPairingStrategy:
             pred_ind.to(original_device)
             gt_ind.to(original_device)
 
-        return pairs
+        return pairs, torch.tensor([len(p) for p in pairs_list], device=pred.device)
 
     def calculate_loss(
         self,
@@ -92,7 +94,7 @@ class IPairingStrategy:
         pred_cart = convert_to_cartesian(pred, coordinate_system)
         gt_cart = convert_to_cartesian(gt, coordinate_system)
 
-        pairs = self.create_pairs(pred_cart, gt_cart, pred_ind, gt_ind)
+        pairs, _ = self.create_pairs(pred_cart, gt_cart, pred_ind, gt_ind)
         diffs = torch.sum((pred_cart[pairs[:, 0]] - gt_cart[pairs[:, 1]]) ** 2, dim=1)
         if reduction == "mean":
             return diffs.mean() if len(diffs) > 0 else torch.tensor(0.0, device=pred.device)
