@@ -46,9 +46,9 @@ class EquidistantStrategy(IPlacementStrategy):
         hits_per_disk = (ring_capacities / disks_on_z).floor().int()
         disk_remainder = ring_capacities - hits_per_disk * disks_on_z
 
-        radii = Tensor([], device=rings.device)
-        angles = Tensor([], device=rings.device)
-        widths = Tensor([], device=rings.device)
+        radii = torch.tensor([], dtype=torch.float, device=rings.device)
+        angles = torch.tensor([], dtype=torch.float, device=rings.device)
+        widths = torch.tensor([], dtype=torch.float, device=rings.device)
 
         for b in range(ring_capacities.size(0)):
             for r in range(ring_capacities.size(1)):

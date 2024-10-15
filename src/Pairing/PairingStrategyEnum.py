@@ -7,4 +7,5 @@ class PairingStrategyEnum(Enum):
     """
 
     GREEDY = "greedy"
+    VEC_GREEDY = "vec_greedy"
     KD_TREE = "kd_tree"

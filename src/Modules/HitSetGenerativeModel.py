@@ -143,7 +143,7 @@ class HitSetGenerativeModel(nn.Module):
 
             pred_hits, set_loss = self.set_generators[t - 1](z, gt, pred_ind, gt_ind, used_size)
         else:
-            pred_hits, set_loss = Tensor([]), Tensor(0.0)
+            pred_hits, set_loss = torch.tensor([]), torch.tensor(0.0, device=self.device)
 
         return pred_size, pred_hits, size_loss, set_loss
 
@@ -163,7 +163,7 @@ class HitSetGenerativeModel(nn.Module):
         hits = (
             self.set_generators[t - 1].generate(z, size.round().int().clamp(min=0))
             if self.set_generators[t - 1] is not None
-            else Tensor([])
+            else torch.tensor([], device=self.device)
         )
         return size, hits
 

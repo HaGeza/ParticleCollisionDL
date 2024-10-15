@@ -2,7 +2,13 @@ import torch
 from torch import Tensor
 
 from src.TimeStep.ForAdjusting import ITimeStepForAdjusting
-from src.Pairing import PairingStrategyEnum, IPairingStrategy, GreedyStrategy, RepeatedKDTreeStrategy
+from src.Pairing import (
+    PairingStrategyEnum,
+    IPairingStrategy,
+    GreedyStrategy,
+    RepeatedKDTreeStrategy,
+    VectorizedGreedyStrategy,
+)
 from src.Util import CoordinateSystemEnum
 from .IHitSetGenerator import IHitSetGenerator
 
@@ -46,6 +52,8 @@ class AdjustingSetGenerator(IHitSetGenerator):
             self.pairing_strategy = GreedyStrategy()
         elif pairing_strategy_type == PairingStrategyEnum.KD_TREE:
             self.pairing_strategy = RepeatedKDTreeStrategy()
+        elif pairing_strategy_type == PairingStrategyEnum.VEC_GREEDY:
+            self.pairing_strategy = VectorizedGreedyStrategy()
         else:
             raise ValueError(f"Unknown pairing strategy: {pairing_strategy_type}")
 
