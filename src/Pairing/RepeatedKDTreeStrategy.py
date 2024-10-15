@@ -75,7 +75,6 @@ class RepeatedKDTreeStrategy(IPairingStrategy):
             if num_pairs_req * np.log(num_pairs_req) / num_added > num_pairs_req:
                 break
 
-        print(f"KD-tree iterations: {kd_iter}, remaining pairs: {num_pairs_req}")
         if num_pairs_req > 0:
             new_pairs = self.fallback_strategy.create_pairs_in_batch(
                 (pred[unused_pred], gt[unused_gt], pred_offset, gt_offset)

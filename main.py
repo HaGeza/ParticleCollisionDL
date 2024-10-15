@@ -1,12 +1,15 @@
 import argparse
-import datetime
 import os
+import random
+
+import numpy as np
 import torch
 from torch.optim import Adam
 from torch.optim.lr_scheduler import CyclicLR
+from torch.multiprocessing import set_start_method
 
 from src.Util import CoordinateSystemEnum
-from src.TimeStep import TimeStepEnum, DistanceTimeStep
+from src.TimeStep import TimeStepEnum
 from src.TimeStep.ForAdjusting.VolumeLayer import VLTimeStep
 from src.Pairing import PairingStrategyEnum
 from src.Trainer import Trainer
@@ -18,13 +21,14 @@ from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel
 from src.Util import DATA_DIR, MODELS_DIR, RESULTS_DIR
 
 
-def main():
+if __name__ == "__main__":
     ap = argparse.ArgumentParser()
 
     ap.add_argument("-d", "--dataset", default="train_sample", help="path to input dataset")
     ap.add_argument("-e", "--epochs", default=100, help="number of epochs to train the model")
     ap.add_argument("-b", "--batch_size", default=2, help="batch size for training")
     ap.add_argument("-l", "--lr", "--learning_rate", default=1e-3, help="learning rate for training")
+    ap.add_argument("-r", "--random_seed", default=42, help="random seed")
     ap.add_argument(
         "--min_lr",
         "--min_learning_rate",
@@ -93,6 +97,15 @@ def main():
         "cuda" if torch.cuda.is_available() else "cpu"  # "mps" if torch.backends.mps.is_available() else "cpu"
     )
 
+    # Set random seeds
+    seed = int(args.random_seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.random.manual_seed(seed)
+
+    # Set multiprocessing start method
+    set_start_method("spawn", force=True)
+
     # Initialize time step
     use_shell_part_sizes = not args.no_shell_part_sizes
     if args.time_step == TimeStepEnum.VOLUME_LAYER:
@@ -130,7 +143,3 @@ def main():
     # Train model
     trainer = Trainer(model, optimizer, scheduler, device, models_path=MODELS_DIR, results_path=RESULTS_DIR)
     trainer.train_and_eval(int(args.epochs), data_loader)
-
-
-if __name__ == "__main__":
-    main()

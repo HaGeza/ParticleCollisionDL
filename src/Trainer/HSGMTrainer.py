@@ -5,6 +5,7 @@ import os
 import random
 import re
 import string
+from tqdm import tqdm, trange
 
 import numpy as np
 from scipy.spatial.distance import directed_hausdorff
@@ -52,7 +53,7 @@ class Trainer:
         optimizer: Optimizer,
         scheduler: lr_scheduler._LRScheduler,
         device: str = "cpu",
-        size_loss_weight: float = 0.25,
+        size_loss_weight: float = 0.01,
         models_path: str = MODELS_DIR,
         results_path: str = RESULTS_DIR,
     ):
@@ -137,7 +138,7 @@ class Trainer:
         mses = [0] * (T - 1)
         num_entries = 0
 
-        for entry in data_iter:
+        for entry in tqdm(data_iter, leave=False, desc="Evaluating..."):
             hits_tensor_list, batch_index_list, _ = entry
 
             in_tensor = hits_tensor_list[0]
@@ -237,11 +238,11 @@ class Trainer:
         min_loss = float("inf")
         self.model.train()
 
-        for epoch in range(epochs):
+        for epoch in trange(epochs):
             loss_mean = 0
             num_entries = 0
 
-            for entry in data_loader.iter_train():
+            for entry in tqdm(data_loader, desc=f"Epoch {epoch + 1}/{epochs}", leave=False):
                 hits_tensor_list, batch_index_list, event_ids = entry
 
                 in_tensor = hits_tensor_list[0]

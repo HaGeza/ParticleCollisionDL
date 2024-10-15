@@ -1,7 +1,7 @@
-import multiprocessing
 import numpy as np
 import torch
 from torch import Tensor
+from torch.multiprocessing import Pool
 
 from src.Util import CoordinateSystemEnum
 from src.Util import convert_to_cartesian
@@ -39,13 +39,6 @@ class IPairingStrategy:
             2. Number of pairs per batch. Shape `[num_batches]`
         """
 
-        original_device = pred.device
-        if original_device.type == "mps":
-            pred.cpu()
-            gt.cpu()
-            pred_ind.cpu()
-            gt_ind.cpu()
-
         # Create lists of batch predictions and ground truths
         num_batches = max(gt_ind.max() if len(gt_ind) > 0 else 0, pred_ind.max() if len(pred_ind) else 0) + 1
         pred_list = [pred[pred_ind == i] for i in range(num_batches)]
@@ -54,20 +47,10 @@ class IPairingStrategy:
         pred_offsets = list(np.cumsum([0] + [len(pred) for pred in pred_list[:-1]]))
         gt_offsets = list(np.cumsum([0] + [len(gt) for gt in gt_list[:-1]]))
 
-        # pairs_list = [
-        #     self.create_pairs_in_batch((pred, gt, pred_offset, gt_offset))
-        #     for pred, gt, pred_offset, gt_offset in zip(pred_list, gt_list, pred_offsets, gt_offsets)
-        # ]
-        with multiprocessing.Pool() as pool:
+        with Pool() as pool:
             pairs_list = pool.map(self.create_pairs_in_batch, zip(pred_list, gt_list, pred_offsets, gt_offsets))
 
         pairs = torch.cat(pairs_list, dim=0)
-
-        if original_device.type == "mps":
-            pred.to(original_device)
-            gt.to(original_device)
-            pred_ind.to(original_device)
-            gt_ind.to(original_device)
 
         return pairs, torch.tensor([len(p) for p in pairs_list], device=pred.device)
 

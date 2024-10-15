@@ -89,7 +89,7 @@ class HitSetGenerativeModel(nn.Module):
             elif set_generator_type == HitSetGeneratorEnum.NONE:
                 self.set_generators.append(None)
             elif set_generator_type == HitSetGeneratorEnum.DDPM:
-                num_steps = 50
+                num_steps = 100
                 beta_schedule = CosineBetaSchedule(offset=0.002, num_steps=num_steps)
                 denoising_processors = [
                     PointNetProcessor(input_dim=encoding_dim + input_dim, hidden_dim=2 * input_dim, device=device)
