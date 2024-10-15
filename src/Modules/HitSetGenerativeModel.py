@@ -10,6 +10,7 @@ from src.Modules.HitSetSizeGenerator import GaussianSizeGenerator, HitSetSizeGen
 from src.Modules.HitSetGenerator import AdjustingSetGenerator, HitSetGeneratorEnum
 from src.Pairing import PairingStrategyEnum
 from src.TimeStep import ITimeStep
+from src.TimeStep.ForAdjusting.PlacementStrategy import PlacementStrategyEnum
 from src.Util import CoordinateSystemEnum
 
 

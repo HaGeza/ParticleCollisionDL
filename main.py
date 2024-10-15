@@ -8,6 +8,7 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import CyclicLR
 from torch.multiprocessing import set_start_method
 
+from src.TimeStep.ForAdjusting.PlacementStrategy import EquidistantStrategy, PlacementStrategyEnum, SinusoidStrategy
 from src.Util import CoordinateSystemEnum
 from src.TimeStep import TimeStepEnum
 from src.TimeStep.ForAdjusting.VolumeLayer import VLTimeStep
@@ -62,6 +63,12 @@ if __name__ == "__main__":
         choices=[e.value for e in PairingStrategyEnum],
     )
     ap.add_argument(
+        "--placement_strategy",
+        default=PlacementStrategyEnum.EQUIDISTANT.value,
+        help="type of placement strategy to use",
+        choices=[e.value for e in PlacementStrategyEnum],
+    )
+    ap.add_argument(
         "--encoder",
         default=HitSetEncoderEnum.POINT_NET.value,
         help="type of encoder to use",
@@ -85,6 +92,7 @@ if __name__ == "__main__":
     args.coordinate_system = CoordinateSystemEnum(args.coordinate_system)
     args.time_step = TimeStepEnum(args.time_step)
     args.pairing_strategy = PairingStrategyEnum(args.pairing_strategy)
+    args.placement_strategy = PlacementStrategyEnum(args.placement_strategy)
     args.encoder = HitSetEncoderEnum(args.encoder)
     args.size_generator = HitSetSizeGeneratorEnum(args.size_generator)
     args.set_generator = HitSetGeneratorEnum(args.set_generator)
@@ -109,7 +117,12 @@ if __name__ == "__main__":
     # Initialize time step
     use_shell_part_sizes = not args.no_shell_part_sizes
     if args.time_step == TimeStepEnum.VOLUME_LAYER:
-        time_step = VLTimeStep(use_shell_part_sizes=use_shell_part_sizes)
+        if args.placement_strategy == PlacementStrategyEnum.SINUSOIDAL:
+            placement_strategy = SinusoidStrategy()
+        else:  # if args.placement_strategy== PlacementStrategyEnum.EQUIDISTANT:
+            placement_strategy = EquidistantStrategy()
+
+        time_step = VLTimeStep(placement_strategy=placement_strategy, use_shell_part_sizes=use_shell_part_sizes)
 
     # Initialize data loader
     data_loader = CollisionEventLoader(

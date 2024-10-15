@@ -18,3 +18,19 @@ def convert_to_cartesian(x: Tensor, coordinate_system: CoordinateSystemEnum) -> 
         return torch.stack([x[:, 0] * torch.cos(x[:, 1]), x[:, 0] * torch.sin(x[:, 1]), x[:, 2]], dim=1)
     else:
         raise ValueError(f"Unknown coordinate system: {coordinate_system}")
+
+
+def convert_from_cylindrical(x: Tensor, coordinate_system: CoordinateSystemEnum) -> Tensor:
+    """
+    Convert a tensor of points from cylindrical coordinates to the given coordinate system.
+
+    :param Tensor x: The tensor of points to convert. Shape `[N, 3]`
+    :return Tensor: The tensor of points in the given coordinate system. Shape `[N, 3]`
+    """
+
+    if coordinate_system == CoordinateSystemEnum.CARTESIAN:
+        return torch.stack([x[:, 0] * torch.cos(x[:, 1]), x[:, 0] * torch.sin(x[:, 1]), x[:, 2]], dim=1)
+    elif coordinate_system == CoordinateSystemEnum.CYLINDRICAL:
+        return x
+    else:
+        raise ValueError(f"Unknown coordinate system: {coordinate_system}")

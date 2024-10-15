@@ -1,2 +1,4 @@
 from .IPlacementStrategy import IPlacementStrategy
+from .PlacementStrategyEnum import PlacementStrategyEnum
 from .SinusoidStrategy import SinusoidStrategy
+from .EquidistantStrategy import EquidistantStrategy

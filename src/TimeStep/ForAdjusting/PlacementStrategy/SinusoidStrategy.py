@@ -2,6 +2,7 @@ from torch import Tensor
 import torch
 
 from src.Util import CoordinateSystemEnum
+from src.Util.CoordinateSystemFuncs import convert_from_cylindrical
 from .IPlacementStrategy import IPlacementStrategy
 
 
@@ -54,15 +55,10 @@ class SinusoidStrategy(IPlacementStrategy):
                 frequencies[start:end] = end - start + 1
                 start = end
 
-        widths = (torch.sin((angles + torch.rand_like(angles)) * frequencies) + 1) / 2
+        widths = (torch.sin((angles + angles % 2 - 1) * frequencies) + 1) / 2
         widths = widths * (rings[indices, 3] - rings[indices, 2]) + rings[indices, 2]
 
-        radii = (torch.cos((angles + torch.rand_like(angles)) * frequencies) + 1) / 2
+        radii = (torch.cos((angles + angles % 2 - 1) * frequencies) + 1) / 2
         radii = radii * (rings[indices, 1] - rings[indices, 0]) + rings[indices, 0]
 
-        if coordinate_system == CoordinateSystemEnum.CARTESIAN:
-            return torch.stack([radii * torch.cos(angles), radii * torch.sin(angles), widths], dim=1)
-        elif coordinate_system == CoordinateSystemEnum.CYLINDRICAL:
-            return torch.stack([radii, angles, widths], dim=1)
-        else:
-            raise ValueError(f"Unknown coordinate system: {coordinate_system}")
+        return convert_from_cylindrical(torch.stack((radii, angles, widths), dim=1), coordinate_system)

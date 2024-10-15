@@ -1,5 +1,5 @@
 from src.TimeStep.ForAdjusting import ITimeStepForAdjusting
-from src.TimeStep.ForAdjusting.PlacementStrategy import IPlacementStrategy, SinusoidStrategy
+from src.TimeStep.ForAdjusting.PlacementStrategy import EquidistantStrategy, IPlacementStrategy
 from src.Util import CoordinateSystemEnum
 from .VLRings import VL_TO_RING
 from .VLMaps import get_volume_layer_to_t, get_t_to_volume_layers
@@ -17,7 +17,7 @@ class VLTimeStep(ITimeStepForAdjusting):
     def __init__(
         self,
         map_index: int = 0,
-        placement_strategy: IPlacementStrategy = SinusoidStrategy(),
+        placement_strategy: IPlacementStrategy = EquidistantStrategy(),
         use_shell_part_sizes: bool = True,
         normalize_hits: bool = True,
     ):
@@ -31,9 +31,9 @@ class VLTimeStep(ITimeStepForAdjusting):
 
         self.vl_to_t, self.num_t = get_volume_layer_to_t(map_index)
         self.t_to_vls = get_t_to_volume_layers(self.vl_to_t, self.num_t)
-        self.placement_strategy = placement_strategy
         self.use_shell_part_sizes = use_shell_part_sizes
         self.normalize_hits = normalize_hits
+        self.placement_strategy = placement_strategy
 
         self.vl_scales = [0] * self.num_t
         for t in range(self.num_t):
