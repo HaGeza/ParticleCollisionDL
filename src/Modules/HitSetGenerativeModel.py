@@ -130,24 +130,22 @@ class HitSetGenerativeModel(nn.Module):
 
         z = self.encoders[t - 1](x, x_ind)
         pred_size = self.size_generators[t - 1](z, gt, gt_ind)
+        size_loss = F.mse_loss(pred_size, gt_size)
 
         if self.set_generators[t - 1] is not None:
-            # Size loss is the average number of missing / additional hits per batch, times the max pair loss
-            size_loss = (torch.abs(pred_size - gt_size) * self.set_generators[t - 1].max_pair_loss).mean()
-
-            # Calculate the used size for set generation
+            # Use the ground truth sizes (rounded to integers) for set generation
             with torch.no_grad():
-                used_size = torch.clamp(pred_size, min=0.0).round().int()
+                used_size = torch.clamp(gt_size, min=0.0).round().int()
 
             # Calculate the indices for the pairing strategy
             flat_size = used_size if used_size.dim() == 1 else used_size.sum(dim=1)
             pred_ind = torch.repeat_interleave(torch.arange(len(flat_size), device=self.device), flat_size)
 
             pred_hits, set_loss = self.set_generators[t - 1](z, gt, pred_ind, gt_ind, used_size)
-            loss = size_loss * self.size_loss_ratio + set_loss * (1 - self.size_loss_ratio)
         else:
-            pred_hits, loss = Tensor([]), F.mse_loss(pred_size, gt_size)
+            pred_hits, set_loss = Tensor([]), Tensor(0.0)
 
+        loss = size_loss * self.size_loss_ratio + set_loss * (1 - self.size_loss_ratio)
         return pred_size, pred_hits, loss
 
     def generate(self, x: Tensor, x_ind: Tensor, t: int) -> Tensor | None:
