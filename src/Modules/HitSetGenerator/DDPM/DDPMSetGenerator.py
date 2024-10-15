@@ -92,6 +92,7 @@ class DDPMSetGenerator(AdjustingSetGenerator):
 
         pairs, num_pairs_per_batch = self.pairing_strategy.create_pairs(initial_points, gt, pred_ind, gt_ind)
         diffs = gt[pairs[:, 1]] - initial_points[pairs[:, 0]]
+        input_dim = initial_points.size(1)
 
         # create noisy steps
         latents = [self._add_noise(diffs, 0)]
@@ -105,7 +106,7 @@ class DDPMSetGenerator(AdjustingSetGenerator):
 
         for i in range(self.num_steps - 1, -1, -1):
             out = self.processors[i](torch.cat([zs, latents[i - 1]], dim=1))
-            mus[i], log_vars[i] = out[:, : latents[i].size(1)], out[:, latents[i].size(1) :]
+            mus[i], log_vars[i] = out[:, :input_dim], out[:, input_dim:]
 
         # predict final mu with final denoising network
         pred_diffs = self.decoder(torch.cat([zs, latents[0]], dim=1))
@@ -120,7 +121,6 @@ class DDPMSetGenerator(AdjustingSetGenerator):
 
         loss = -(RE - KL).mean()
 
-        # return the generated hit set and the loss
         return initial_points[pairs[:, 0]] + pred_diffs, loss
 
     def generate(self, z: Tensor, size: Tensor) -> Tensor:
@@ -128,16 +128,24 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         Generate a hit set.
 
         :param Tensor z: (UNUSED) Input tensor. Shape `[encoding_dim]`
-        :param Tensor size: Size of the generated hit point-cloud.
+        :param Tensor size: Size of the generated hit point-cloud. Shape `[num_batches]`
+            or `[num_batches, num_parts_next]`
         :return: Generated hit set. Shape `[sum(size), hit_dim]`
         """
 
+        hits_per_batch = size if size.dim() == 1 else size.sum(dim=1)
         initial_points = super().generate(z, size)
+        input_dim = initial_points.size(1)
 
         # put standard normal around paired predicted points
+        diffs = torch.randn_like(initial_points)
 
         # denoise movement distributions
+        zs = torch.cat([z[i].repeat(hits_per_batch[i], 1) for i in range(z.size(0))], dim=0)
+        for i in range(self.num_steps):
+            out = self.processors[i](torch.cat([zs, diffs], dim=1))
+            mu, log_var = out[:, :input_dim], out[:, input_dim:]
+            diffs = mu + torch.randn_like(diffs) * torch.exp(0.5 * log_var)
 
         # move points according to sample from denoised movement distributions
-
-        # return the generated hit set
+        return initial_points + diffs

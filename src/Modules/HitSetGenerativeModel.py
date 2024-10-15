@@ -32,7 +32,6 @@ class HitSetGenerativeModel(nn.Module):
         pairing_strategy_type: PairingStrategyEnum,
         coordinate_system: CoordinateSystemEnum,
         use_shell_part_sizes: bool,
-        size_loss_ratio: float = 0.25,
         input_dim: int = 3,
         encoding_dim: int = 16,
         device: str = "cpu",
@@ -45,7 +44,8 @@ class HitSetGenerativeModel(nn.Module):
         :param PairingStrategyEnum pairing_strategy_type: Pairing strategy to use for reconstruction loss.
         :param CoordinateSystemEnum coordinate_system: Coordinate system to use for input.
         :param bool use_shell_part_sizes: Whether to use shell part sizes for the loss calculation.
-        :param float size_loss_ratio: Ratio of the size loss to the set loss.
+        :param int input_dim: Dimension of the input hits.
+        :param int encoding_dim: Dimension of the encoded hits.
         :param str device: Device to run the model on.
         """
 
@@ -54,7 +54,6 @@ class HitSetGenerativeModel(nn.Module):
         self.time_step = time_step
         self.coordinate_system = coordinate_system
         self.use_shell_part_sizes = use_shell_part_sizes
-        self.size_loss_ratio = size_loss_ratio
         self.input_dim = input_dim
         self.encoding_dim = encoding_dim
         self.device = device
@@ -114,7 +113,7 @@ class HitSetGenerativeModel(nn.Module):
 
     def forward(
         self, x: Tensor, gt: Tensor, x_ind: Tensor, gt_ind: Tensor, gt_size: Tensor, t: int
-    ) -> tuple[Tensor, Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
         """
         Forward pass of the hit-set generative model.
 
@@ -124,8 +123,8 @@ class HitSetGenerativeModel(nn.Module):
         :param Tensor gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`
         :param Tensor gt_size: Ground truth hit set size tensor. Shape `[num_batches]`
             or `[num_batches, num_parts_next]`
-        :return tuple[Tensor, Tensor, Tensor]: Tuple containing the generated hit set size,
-            the generated hit set and the loss.
+        :return tuple[Tensor, Tensor, Tensor, Tensor]: Tuple containing the generated
+            hit set size, the generated hit set, the size loss and the set loss.
         """
 
         z = self.encoders[t - 1](x, x_ind)
@@ -145,26 +144,27 @@ class HitSetGenerativeModel(nn.Module):
         else:
             pred_hits, set_loss = Tensor([]), Tensor(0.0)
 
-        loss = size_loss * self.size_loss_ratio + set_loss * (1 - self.size_loss_ratio)
-        return pred_size, pred_hits, loss
+        return pred_size, pred_hits, size_loss, set_loss
 
-    def generate(self, x: Tensor, x_ind: Tensor, t: int) -> Tensor | None:
+    def generate(self, x: Tensor, x_ind: Tensor, t: int) -> tuple[Tensor, Tensor]:
         """
         Generate the hit set at time t+1 given the hit set at time t.
 
         :param Tensor x: Input hit tensor. Shape `[num_hits, hit_dim]`
         :param Tensor x_ind: Input hit batch index tensor. Shape `[num_hits]`
         :param int t: Time step to generate the hit set for.
-        :return: Generated hit set tensor. Shape `[num_hits_pred, hit_dim]`. None if no set generator is defined.
+        :return tuple[Tensor, Tensor]: Tuple containing the generated hit set size and the generated hit set.
+            If self.set_generators[t - 1] is None, the hit set is an empty tensor.
         """
 
-        x = self.encoders[t - 1](x, x_ind)
-        size = self.size_generators[t - 1].generate(x, x_ind)
-        return (
-            self.set_generators[t - 1].generate(size.round().int(), x, x_ind)
+        z = self.encoders[t - 1](x, x_ind)
+        size = self.size_generators[t - 1].generate(z)
+        hits = (
+            self.set_generators[t - 1].generate(z, size.round().int().clamp(min=0))
             if self.set_generators[t - 1] is not None
-            else None
+            else Tensor([])
         )
+        return size, hits
 
     def get_info(self) -> dict[str, str]:
         """

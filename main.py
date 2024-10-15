@@ -129,7 +129,7 @@ def main():
 
     # Train model
     trainer = Trainer(model, optimizer, scheduler, device, models_path=MODELS_DIR, results_path=RESULTS_DIR)
-    trainer.train(data_loader, int(args.epochs))
+    trainer.train_and_eval(int(args.epochs), data_loader)
 
 
 if __name__ == "__main__":

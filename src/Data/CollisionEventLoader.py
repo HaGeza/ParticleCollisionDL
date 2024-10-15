@@ -1,7 +1,8 @@
 import os
+import random
 from typing import Iterator
+
 from trackml.dataset import load_event
-from pandas import DataFrame
 from pandas.api.typing import DataFrameGroupBy
 import torch
 
@@ -27,6 +28,8 @@ class CollisionEventLoader:
         hits_cols: list[str] = ["x", "y", "z"],
         coordinate_system: CoordinateSystemEnum = CoordinateSystemEnum.CYLINDRICAL,
         normalize_hits: bool = True,
+        val_ratio: float = 0.1,
+        shuffle: bool = True,
         device: str = "cpu",
     ):
         """
@@ -36,6 +39,8 @@ class CollisionEventLoader:
         :param list[str] hits_cols: List of columns to be returned from the hits `DataFrame`
         :param CoordinateSystemEnum coordinate_system: Coordinate system to use
         :param bool normalize_hits: Whether to normalize the hit tensor
+        :param float val_ratio: Ratio of the dataset to use for validation
+        :param bool shuffle: Whether to shuffle the dataset
         :param str device: Device to load the data on
         """
 
@@ -47,7 +52,16 @@ class CollisionEventLoader:
         self.num_t = time_step.get_num_time_steps()
         self.coordinate_system = coordinate_system
         self.normalize_hits = normalize_hits
+        self.shuffle = shuffle
         self.device = device
+
+        events = []
+        for root, _, files in os.walk(self.dataset_path):
+            events += [os.path.join(root, f.split("-")[0]) for f in files]
+
+        train_cutoff = int((1 - val_ratio) * len(events))
+        self.train_events = events[:train_cutoff]
+        self.val_events = events[train_cutoff:]
 
     def _get_t_hit_tensor(self, grouped_hits: DataFrameGroupBy, t: int) -> torch.Tensor:
         """
@@ -85,7 +99,7 @@ class CollisionEventLoader:
             [torch.empty(0, device=self.device, dtype=torch.long, requires_grad=False) for _ in range(self.num_t)],
         )
 
-    def __iter__(self) -> Iterator[tuple[list[torch.Tensor], list[torch.Tensor]]]:
+    def iter_util(self, events: list[str]) -> Iterator[tuple[list[torch.Tensor], list[torch.Tensor]]]:
         """
         Iterate over the collision events and yield the hit and batch indices tensor lists.
 
@@ -95,34 +109,55 @@ class CollisionEventLoader:
         """
 
         hits_tensor_list, batch_index_list = self._reset_batch()
+        event_ids = []
         index_in_batch = 0
 
-        # Iterate over files in the dataset
-        for root, _, files in os.walk(self.dataset_path):
-            event_ids = {f.split("-")[0] for f in files}
+        # Iterate over event files
+        event_list = random.sample(events, len(events)) if self.shuffle else events
+        for event in event_list:
+            hits, _cells, _particles, _truth = load_event(event)
+            self.time_step.define_time_step(hits)
+            grouped_hits = hits.groupby("t")
 
-            # Iterate over event files
-            for event_id in event_ids:
-                hits, _cells, _particles, _truth = load_event(os.path.join(root, event_id))
-                self.time_step.define_time_step(hits)
-                grouped_hits = hits.groupby("t")
+            # Append hits and batch indices to each time step tensor
+            for t in range(self.num_t):
+                hits_tensor_t = self._get_t_hit_tensor(grouped_hits, t)
+                hits_tensor_list[t] = torch.cat([hits_tensor_list[t], hits_tensor_t], dim=0)
+                batch_index_t = torch.full(
+                    (hits_tensor_t.shape[0],), index_in_batch, device=self.device, dtype=torch.long
+                )
+                batch_index_list[t] = torch.cat([batch_index_list[t], batch_index_t])
 
-                # Append hits and batch indices to each time step tensor
-                for t in range(self.num_t):
-                    hits_tensor_t = self._get_t_hit_tensor(grouped_hits, t)
-                    hits_tensor_list[t] = torch.cat([hits_tensor_list[t], hits_tensor_t], dim=0)
-                    batch_index_t = torch.full(
-                        (hits_tensor_t.shape[0],), index_in_batch, device=self.device, dtype=torch.long
-                    )
-                    batch_index_list[t] = torch.cat([batch_index_list[t], batch_index_t])
-
-                index_in_batch += 1
-                # Yield the batch when it is full
-                if index_in_batch >= self.batch_size:
-                    yield hits_tensor_list, batch_index_list, event_id
-                    hits_tensor_list, batch_index_list = self._reset_batch()
-                    index_in_batch = 0
+            index_in_batch += 1
+            event_ids.append(os.path.basename(event))
+            # Yield the batch when it is full
+            if index_in_batch >= self.batch_size:
+                yield hits_tensor_list, batch_index_list, event_ids
+                hits_tensor_list, batch_index_list = self._reset_batch()
+                event_ids = []
+                index_in_batch = 0
 
         # Yield the last batch if it is not empty
         if index_in_batch > 0:
-            yield hits_tensor_list, batch_index_list, event_id
+            yield hits_tensor_list, batch_index_list, event_ids
+
+    def iter_train(self) -> Iterator[tuple[list[torch.Tensor], list[torch.Tensor]]]:
+        """
+        Alias for `CollisionEventLoader.iter_util` with the training events
+        """
+
+        return self.iter_util(self.train_events)
+
+    def iter_val(self) -> Iterator[tuple[list[torch.Tensor], list[torch.Tensor]]]:
+        """
+        Alias for `CollisionEventLoader.iter_util` with the validation events
+        """
+
+        return self.iter_util(self.val_events)
+
+    def __iter__(self) -> Iterator[tuple[list[torch.Tensor], list[torch.Tensor]]]:
+        """
+        Alias for `CollisionEventLoader.iter_train`
+        """
+
+        return self.iter_train()
