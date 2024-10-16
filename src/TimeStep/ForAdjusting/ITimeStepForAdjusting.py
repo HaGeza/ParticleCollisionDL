@@ -25,12 +25,3 @@ class ITimeStepForAdjusting(ITimeStep):
         """
 
         raise NotImplementedError
-
-    def get_max_squared_distance(self) -> float:
-        """
-        Returns the maximum possible squared distance between any two hits.
-
-        :return float: The maximum possible squared distance between any two hits.
-        """
-
-        raise NotImplementedError

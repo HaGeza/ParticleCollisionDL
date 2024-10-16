@@ -100,15 +100,6 @@ class VLTimeStep(ITimeStepForAdjusting):
         coordinate_system: CoordinateSystemEnum,
         device: str = "cpu",
     ) -> Tensor:
-        """
-        Places hits in the detector for a given time-step.
-
-        :param int t: The time-step.
-        :param torch.Tensor size: The number of hits to place in each ring.
-        :param str device: The device to place the hits on.
-        :return: The placed hits.
-        """
-
         rings = self._get_rings(t, device)
 
         if not self.use_shell_part_sizes:
@@ -144,18 +135,6 @@ class VLTimeStep(ITimeStepForAdjusting):
         else:  # coordinate_system == CoordinateSystemEnum.CYLINDRICAL
             normalizer = torch.tensor([self.vl_scales[t], 1.0, self.vl_scales[t]], device=hit_tensor.device)
             return hit_tensor / normalizer
-
-    def get_max_squared_distance(self) -> float:
-        """
-        Returns the maximum possible squared distance between any two hits. This assumes
-        that the hits have been normalized using the `normalize_hit_tensor` method. If this
-        is not the case the max pairwise squared distance is potentially as large as
-        `3 * max(self.vl_scales) ** 2`, which would likely lead to numerical instability.
-
-        :return float: The maximum possible squared distance between any two hits.
-        """
-
-        return 3.0
 
     def get_num_shell_parts(self, t: int) -> int:
         """

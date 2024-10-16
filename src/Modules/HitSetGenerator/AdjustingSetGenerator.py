@@ -58,34 +58,23 @@ class AdjustingSetGenerator(IHitSetGenerator):
         else:  # if args.pairing_strategy == PairingStrategyEnum.HUNGARIAN.value:
             self.pairing_strategy = HungarianAlgorithmStrategy()
 
-        self.max_pair_loss = time_step.get_max_squared_distance()
-
-    def forward(self, z: Tensor, gt: Tensor, pred_ind: Tensor, gt_ind: Tensor, size: Tensor) -> tuple[Tensor, Tensor]:
-        """
-        Forward pass of the adjusting set generator.
-
-        :param Tensor z: Encoded input hit set. Shape `[encoding_dim]`
-        :param Tensor gt: Ground truth tensor. Shape `[num_hits_next, hit_dim]`
-        :param Tensor pred_ind: Predicted hit batch index tensor. Shape `[num_hits_pred]`.
-        :param Tensor gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`.
-        :param Tensor used_size: Size of the generated hit point-cloud.
-            Shape `[num_batches]` or `[num_batches, num_parts_next]`.
-        :return: Generated hit set (Shape `[sum(size), hit_dim]`), and the loss
-        """
-
+    def forward(
+        self,
+        z: Tensor,
+        gt: Tensor,
+        pred_ind: Tensor,
+        gt_ind: Tensor,
+        size: Tensor,
+        initial_pred: Tensor = torch.tensor([]),
+    ) -> tuple[Tensor, Tensor]:
         pred = self.generate(z, size)
         return pred, self.pairing_strategy.calculate_loss(
             pred, gt, pred_ind, gt_ind, coordinate_system=self.coordinate_system
         )
 
-    def generate(self, z: Tensor, size: Tensor) -> Tensor:
-        """
-        Generate a hit set.
-
-        :param Tensor z: Input tensor. Shape `[encoding_dim]`
-        :param Tensor size: Size of the generated hit point-cloud.
-        :return: Generated hit set. Shape `[sum(size), hit_dim]`
-        """
+    def generate(self, z: Tensor, size: Tensor, initial_pred: Tensor = torch.tensor([])) -> Tensor:
+        if initial_pred.size(0) > 0:
+            return initial_pred
 
         with torch.no_grad():
             return self.time_step.place_hits(self.t + 1, size, self.coordinate_system, device=self.device)

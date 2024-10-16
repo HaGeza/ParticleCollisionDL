@@ -46,6 +46,7 @@ class IPairingStrategy:
         gt_batch_ind: Tensor,
         pred_part_ind: Tensor = None,
         gt_part_ind: Tensor = None,
+        initial_pred: Tensor = torch.tensor([]),
     ) -> tuple[Tensor, Tensor]:
         """
         Create pairs of generated and ground-truth hits.
@@ -56,10 +57,23 @@ class IPairingStrategy:
         :param Tensor gt_batch_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`
         :param Tensor pred_part_ind: Predicted hit part index tensor. `None` or tensor with shape `[num_hits]`.
         :param Tensor gt_part_ind: Ground truth hit part index tensor. `None` or tensor with shape `[num_hits_next]`.
+        :param Tensor initial_pred: Initial prediction. Shape `[num_hits_next, hit_dim]`
+            or empty tensor if no initial prediction is available.
         :return tuple[Tensor, Tensor]: A tuple containing two Tensors:
             1. Pairing tensor. Shape `[sum(min(num_hits_batch_i, num_hits_next_batch_i)), 2]`
-            2. Number of pairs per batch. Shape `[num_batches]`
+            2. Number of pairs per batch or per batch-part combination. Shape `[num_batches]`
+                or `[num_batches * num_parts]`.
         """
+
+        if len(initial_pred) > 0:
+            if pred_part_ind is None or gt_part_ind is None:
+                _, pair_counts = torch.unique(pred_batch_ind, return_counts=True)
+            else:
+                num_parts = IPairingStrategy._get_max_ind(gt_part_ind, pred_part_ind)
+                _, pair_counts = torch.unique(pred_batch_ind * num_parts + pred_part_ind, return_counts=True)
+
+            pairs = torch.arange(pair_counts.sum(), device=pred.device, dtype=torch.long).unsqueeze(1).repeat(1, 2)
+            return pairs, pair_counts
 
         original_device = pred.device.type
         if original_device == "mps":

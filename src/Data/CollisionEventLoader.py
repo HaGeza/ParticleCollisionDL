@@ -8,15 +8,16 @@ import torch
 from torch import Tensor
 from torch.nn import functional as F
 
+from .IDataLoader import IDataLoader
 from src.TimeStep import ITimeStep
 from src.Util import CoordinateSystemEnum
 
 
-class CollisionEventLoader:
+class CollisionEventLoader(IDataLoader):
     """
     DataLoader class for loading hit-data from collision events.
 
-    Yields two tensor lists, both containing one tensor per time step:
+    Yields two tensor lists and a list of event ids. Both tensor lists contain one tensor per time step:
     1. List of hit tensors for each time step - i.e. the actual hit data to be used by a model
     2. List of batch indices for each time step - i.e. the batch index (which batch it belongs to)
        for each hit in the hit tensor
@@ -46,7 +47,6 @@ class CollisionEventLoader:
         :param str device: Device to load the data on
         """
 
-        self.dataset_path = dataset_path
         self.batch_size = batch_size
         self.hits_cols = hits_cols
         self.hits_size = len(hits_cols)
@@ -58,8 +58,8 @@ class CollisionEventLoader:
         self.device = device
 
         events = []
-        for root, _, files in os.walk(self.dataset_path):
-            events += [os.path.join(root, f.split("-")[0]) for f in files]
+        for root, _, files in os.walk(dataset_path):
+            events += [os.path.join(root, f.split("-")[0]) for f in files if f.endswith("-hits.csv")]
 
         train_cutoff = int((1 - val_ratio) * len(events))
         self.train_events = events[:train_cutoff]
@@ -103,19 +103,8 @@ class CollisionEventLoader:
         )
 
     def get_gt_size(
-        self, gt_tensor: Tensor, gt_batch_index: Tensor, t: int, use_shell_parts: bool = True
+        self, gt_tensor: Tensor, gt_batch_index: Tensor, t: int, use_shell_parts: bool = True, events: list[str] = []
     ) -> tuple[Tensor, Tensor]:
-        """
-        Calculate ground truth sizes for shells / shell-parts
-
-        :param Tensor gt_tensor: The ground truth hit tensor
-        :param Tensor gt_batch_index: The ground truth batch index tensor
-        :param int t: The time
-        :param bool use_shell_part: Whether to use shell parts
-        :return Tensor: The ground truth sizes with shape `[num_batches]` and and empty Tensor
-            or if `self.model.use_shell_part_sizes` is `True`, a tuple of the ground truth sizes
-            with shape `[num_batches, num_parts]` and the part ids tensor with shape `[num_hits]`.
-        """
         if use_shell_parts:
             part_ids = self.time_step.assign_to_shell_parts(gt_tensor, t, self.coordinate_system)
             num_parts = self.time_step.get_num_shell_parts(t)
@@ -132,21 +121,14 @@ class CollisionEventLoader:
             _, gt_size = torch.unique(gt_batch_index, return_counts=True)
             return gt_size.float().to(self.device), torch.tensor([])
 
-    def iter_events(self, events: list[str]) -> Iterator[tuple[list[Tensor], list[Tensor]]]:
-        """
-        Iterate over the collision events and yield the hit and batch indices tensor lists.
-
-        :return: Iterator of tuple of hit and batch indices tensor lists. If `self.coordinate_system`
-            is `CoordinateSystemEnum.CARTESIAN` each row contains the x, y, z coordinates of the hit.
-            If `self.coordinate_system` is `CoordinateSystemEnum.CYLINDRICAL` each row contains r, phi, z.
-        """
-
+    def iter_events(self, events: list[str]) -> Iterator[tuple[list[Tensor], list[Tensor], list[str]]]:
         hits_tensor_list, batch_index_list = self._reset_batch()
         event_ids = []
         index_in_batch = 0
 
         # Iterate over event files
         event_list = random.sample(events, len(events)) if self.shuffle else events
+        print(len(event_list))
         for event in event_list:
             hits, _cells, _particles, _truth = load_event(event)
             self.time_step.define_time_step(hits)
@@ -174,9 +156,8 @@ class CollisionEventLoader:
         if index_in_batch > 0:
             yield hits_tensor_list, batch_index_list, event_ids
 
-    def __iter__(self) -> Iterator[tuple[list[Tensor], list[Tensor]]]:
-        """
-        Alias for `CollisionEventLoader.iter_train`
-        """
-
+    def __iter__(self) -> Iterator[tuple[list[Tensor], list[Tensor], list[str]]]:
         return self.iter_events(self.train_events)
+
+    def get_batch_size(self) -> int:
+        return self.batch_size

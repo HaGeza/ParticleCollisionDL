@@ -10,7 +10,6 @@ from src.Modules.HitSetSizeGenerator import GaussianSizeGenerator, HitSetSizeGen
 from src.Modules.HitSetGenerator import AdjustingSetGenerator, HitSetGeneratorEnum
 from src.Pairing import PairingStrategyEnum
 from src.TimeStep import ITimeStep
-from src.TimeStep.ForAdjusting.PlacementStrategy import PlacementStrategyEnum
 from src.Util import CoordinateSystemEnum
 
 
@@ -113,17 +112,30 @@ class HitSetGenerativeModel(nn.Module):
                 )
 
     def forward(
-        self, x: Tensor, gt: Tensor, x_ind: Tensor, gt_ind: Tensor, gt_size: Tensor, t: int
+        self,
+        x: Tensor,
+        gt: Tensor,
+        x_ind: Tensor,
+        gt_ind: Tensor,
+        gt_size: Tensor,
+        t: int,
+        initial_pred: Tensor = torch.tensor([]),
     ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
         """
         Forward pass of the hit-set generative model.
 
         :param Tensor x: Input hit tensor. Shape `[num_hits, hit_dim]`
         :param Tensor gt: Ground truth hit tensor. Shape `[num_hits_next, hit_dim]`
+            or `[num_hits_next, 2 * hit_dim]` if using precomputed data, in which case
+            the second half of each row in `gt` is the initial position of the pair
+            of the corresponding hit in the first half.
         :param Tensor x_ind: Input hit batch index tensor. Shape `[num_hits]`
         :param Tensor gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`
         :param Tensor gt_size: Ground truth hit set size tensor. Shape `[num_batches]`
             or `[num_batches, num_parts_next]`
+        :param int t: Time step to generate the hit set for.
+        :param Tensor initial_pred: Initial prediction for the hit set at time t+1.
+            Shape `[num_hits_next, hit_dim]` or empty tensor if no initial prediction is available.
         :return tuple[Tensor, Tensor, Tensor, Tensor]: Tuple containing the generated
             hit set size, the generated hit set, the size loss and the set loss.
         """
@@ -141,19 +153,23 @@ class HitSetGenerativeModel(nn.Module):
             flat_size = used_size if used_size.dim() == 1 else used_size.sum(dim=1)
             pred_ind = torch.repeat_interleave(torch.arange(len(flat_size), device=self.device), flat_size)
 
-            pred_hits, set_loss = self.set_generators[t - 1](z, gt, pred_ind, gt_ind, used_size)
+            pred_hits, set_loss = self.set_generators[t - 1](z, gt, pred_ind, gt_ind, used_size, initial_pred)
         else:
             pred_hits, set_loss = torch.tensor([]), torch.tensor(0.0, device=self.device)
 
         return pred_size, pred_hits, size_loss, set_loss
 
-    def generate(self, x: Tensor, x_ind: Tensor, t: int) -> tuple[Tensor, Tensor]:
+    def generate(
+        self, x: Tensor, x_ind: Tensor, t: int, initial_pred: Tensor = torch.tensor([])
+    ) -> tuple[Tensor, Tensor]:
         """
         Generate the hit set at time t+1 given the hit set at time t.
 
         :param Tensor x: Input hit tensor. Shape `[num_hits, hit_dim]`
         :param Tensor x_ind: Input hit batch index tensor. Shape `[num_hits]`
         :param int t: Time step to generate the hit set for.
+        :param Tensor initial_pred: Initial prediction for the hit set at time t+1.
+            Shape `[num_hits_next, hit_dim]` or empty tensor if no initial prediction is available.
         :return tuple[Tensor, Tensor]: Tuple containing the generated hit set size and the generated hit set.
             If self.set_generators[t - 1] is None, the hit set is an empty tensor.
         """
@@ -166,12 +182,3 @@ class HitSetGenerativeModel(nn.Module):
             else torch.tensor([], device=self.device)
         )
         return size, hits
-
-    def get_info(self) -> dict[str, str]:
-        """
-        Get information about the model.
-
-        :return dict[str, str]: Information about the model.
-        """
-
-        return self.information

@@ -14,9 +14,9 @@ from torch import Tensor
 from torch.nn import functional as F
 from torch.optim import lr_scheduler, Optimizer
 
-from src.Util import MODELS_DIR, RESULTS_DIR
+from src.Data import IDataLoader
+from src.Util.Paths import MODELS_DIR, RESULTS_DIR
 from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel
-from src.Data.CollisionEventLoader import CollisionEventLoader
 
 
 class Trainer:
@@ -95,7 +95,7 @@ class Trainer:
 
         return torch.tensor(max(pred_to_gt, gt_to_pred), dtype=torch.float32, device=self.device)
 
-    def evaluate(self, data_loader: CollisionEventLoader, events: list[str]) -> tuple[list[float], list[float]]:
+    def evaluate(self, data_loader: IDataLoader, events: list[str]) -> tuple[list[float], list[float]]:
         """
         Evaluate the model using the given data iterator.
 
@@ -111,17 +111,20 @@ class Trainer:
         num_entries = 0
 
         for entry in tqdm(data_loader.iter_events(events), leave=False, desc="Evaluating..."):
-            hits_tensor_list, batch_index_list, _ = entry
+            hits_tensor_list, batch_index_list, event_ids = entry
 
             in_tensor = hits_tensor_list[0]
             in_batch_index = batch_index_list[0].detach()
+            in_dim = in_tensor.size(1)
 
             for t in range(1, T):
-                gt_tensor = hits_tensor_list[t]
-                gt_batch_index = batch_index_list[t].detach()
-                gt_size, _ = data_loader.get_gt_size(gt_tensor, gt_batch_index, t)
+                gt_tensor = hits_tensor_list[t][:, :in_dim]
+                initial_pred = hits_tensor_list[t][:, in_dim:]
 
-                pred_size, pred_tensor = self.model.generate(in_tensor, in_batch_index, t)
+                gt_batch_index = batch_index_list[t].detach()
+                gt_size, _ = data_loader.get_gt_size(gt_tensor, gt_batch_index, t, event_ids)
+
+                pred_size, pred_tensor = self.model.generate(in_tensor, in_batch_index, t, initial_pred)
 
                 hds[t - 1] += self._get_hausdorff_distance(pred_tensor, gt_tensor).item()
                 mses[t - 1] += F.mse_loss(pred_size, gt_size).item()
@@ -132,14 +135,14 @@ class Trainer:
     def train_and_eval(
         self,
         epochs: int,
-        data_loader: CollisionEventLoader,
+        data_loader: IDataLoader,
         no_log: bool = False,
     ):
         """
         Train and evaluate the model using the given data loader.
 
         :param int epochs: The number of epochs to train for
-        :param CollisionEventLoader data_loader: The data loader to use
+        :param IDataLoader data_loader: The data loader to use
         :param bool no_log: Whether to log the training progress
         """
 
@@ -147,6 +150,7 @@ class Trainer:
             self.model.to(self.device)
 
         T = self.model.time_step.get_num_time_steps()
+        B = data_loader.get_batch_size()
 
         # Set up directories
         os.makedirs(self.models_path, exist_ok=True)
@@ -163,11 +167,11 @@ class Trainer:
         # Set up info file
         info_file = os.path.join(result_dir, "info.json")
         with open(info_file, "w") as f:
-            model_info = self.model.get_info()
+            model_info = self.model.information
             training_info = {
                 "model_name": model_name,
                 "epochs": epochs,
-                "batch_size": data_loader.batch_size,
+                "batch_size": B,
                 "device": str(self.device),
                 "size_loss_weight": self.size_loss_weight,
                 "optimizer_type": self.optimizer.__class__.__name__,
@@ -183,20 +187,19 @@ class Trainer:
             train_log = os.path.join(result_dir, "train_log.csv")
             with open(train_log, "w") as f:
                 row = ["epoch", "t"]
-                row += [f"event_{i}" for i in range(data_loader.batch_size)]
+                row += [f"event_{i}" for i in range(B)]
                 row += ["size_loss", "set_loss", "loss"]
 
                 if not self.model.use_shell_part_sizes:
-                    row += [f"pred_size_{i}" for i in range(data_loader.batch_size)]
-                    row += [f"gt_size_{i}" for i in range(data_loader.batch_size)]
-                    num_size_preds = data_loader.batch_size
+                    row += [f"pred_size_{i}" for i in range(B)]
+                    row += [f"gt_size_{i}" for i in range(B)]
+                    num_size_preds = B
                 else:
                     max_num_parts = np.max([self.model.time_step.get_num_shell_parts(t) for t in range(1, T)])
-                    row += [f"pred_size_{i}_{j}" for i in range(data_loader.batch_size) for j in range(max_num_parts)]
-                    row += [f"gt_size_{i}_{j}" for i in range(data_loader.batch_size) for j in range(max_num_parts)]
-                    num_size_preds = data_loader.batch_size * max_num_parts
+                    row += [f"pred_size_{i}_{j}" for i in range(B) for j in range(max_num_parts)]
+                    row += [f"gt_size_{i}_{j}" for i in range(B) for j in range(max_num_parts)]
+                    num_size_preds = B * max_num_parts
                 csv.writer(f).writerow(row)
-            data_loader.return_event_ids = True
 
             # Create log of evaluation metrics
             eval_log = os.path.join(result_dir, "eval_log.csv")
@@ -215,20 +218,24 @@ class Trainer:
             num_entries = 0
 
             for entry in tqdm(data_loader, desc=f"Epoch {epoch + 1}/{epochs}", leave=False):
+                break
                 hits_tensor_list, batch_index_list, event_ids = entry
 
                 in_tensor = hits_tensor_list[0]
                 in_batch_index = batch_index_list[0].detach()
+                in_dim = in_tensor.size(1)
 
                 for t in trange(1, T, leave=False, desc="Time steps"):
-                    gt_tensor = hits_tensor_list[t]
+                    gt_tensor = hits_tensor_list[t][:, :in_dim]
+                    initial_pred = hits_tensor_list[t][:, in_dim:]
+
                     gt_batch_index = batch_index_list[t].detach()
                     gt_size, _ = data_loader.get_gt_size(gt_tensor, gt_batch_index, t)
 
                     self.optimizer.zero_grad()
 
                     pred_size, pred_tensor, size_loss, set_loss = self.model(
-                        in_tensor, gt_tensor, in_batch_index, gt_batch_index, gt_size, t
+                        in_tensor, gt_tensor, in_batch_index, gt_batch_index, gt_size, t, initial_pred
                     )
 
                     loss = size_loss * self.size_loss_weight + set_loss

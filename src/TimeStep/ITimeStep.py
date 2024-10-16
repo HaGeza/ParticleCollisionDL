@@ -1,7 +1,6 @@
 from pandas import DataFrame
 from torch import Tensor
 
-from src.TimeStep.TimeStepEnum import TimeStepEnum
 from src.Util import CoordinateSystemEnum
 
 from src.TimeStep.TimeStepEnum import TimeStepEnum

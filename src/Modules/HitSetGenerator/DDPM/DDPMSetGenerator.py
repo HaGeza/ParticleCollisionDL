@@ -77,27 +77,25 @@ class DDPMSetGenerator(AdjustingSetGenerator):
             latent, torch.sqrt(1.0 - self.betas[beta_ind]) * latent, torch.log(self.betas[beta_ind])
         )
 
-    def forward(self, z: Tensor, gt: Tensor, pred_ind: Tensor, gt_ind: Tensor, size: Tensor) -> tuple[Tensor, Tensor]:
-        """
-        Forward pass of the adjusting set generator.
+    def forward(
+        self,
+        z: Tensor,
+        gt: Tensor,
+        pred_ind: Tensor,
+        gt_ind: Tensor,
+        size: Tensor,
+        initial_pred: Tensor = torch.tensor([]),
+    ) -> tuple[Tensor, Tensor]:
+        initial_pred = super().generate(z, size, initial_pred)
 
-        :param Tensor z: Encoded input hit set. Shape `[encoding_dim]`
-        :param Tensor gt: Ground truth tensor. Shape `[num_hits_next, hit_dim]`
-        :param Tensor pred_ind: Predicted hit batch index tensor. Shape `[num_hits_pred]`.
-        :param Tensor gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`.
-        :param Tensor size: Size of the hit point-cloud to generate. Shape `[num_batches]`
-            or `[num_batches, num_parts_next]`.
-        :return: Generated hit set (Shape `[sum(size), hit_dim]`), and the loss
-        """
-
-        initial_points = super().generate(z, size)
-
-        initial_cart = convert_to_cartesian(initial_points, self.coordinate_system)
+        initial_pred_cart = convert_to_cartesian(initial_pred, self.coordinate_system)
         gt_cart = convert_to_cartesian(gt, self.coordinate_system)
 
-        pairs, num_pairs_per_batch = self.pairing_strategy.create_pairs(initial_cart, gt_cart, pred_ind, gt_ind)
-        diffs = gt_cart[pairs[:, 1]] - initial_cart[pairs[:, 0]]
-        input_dim = initial_points.size(1)
+        pairs, num_pairs_per_batch = self.pairing_strategy.create_pairs(
+            initial_pred_cart, gt_cart, pred_ind, gt_ind, initial_pred
+        )
+        diffs = gt_cart[pairs[:, 1]] - initial_pred_cart[pairs[:, 0]]
+        input_dim = initial_pred.size(1)
 
         # create noisy steps
         latents = [self._add_noise(diffs, 0)]
@@ -126,20 +124,11 @@ class DDPMSetGenerator(AdjustingSetGenerator):
 
         loss = -(RE - KL).mean()
 
-        return initial_points[pairs[:, 0]] + pred_diffs, loss
+        return initial_pred[pairs[:, 0]] + pred_diffs, loss
 
-    def generate(self, z: Tensor, size: Tensor) -> Tensor:
-        """
-        Generate a hit set.
-
-        :param Tensor z: (UNUSED) Input tensor. Shape `[encoding_dim]`
-        :param Tensor size: Size of the generated hit point-cloud. Shape `[num_batches]`
-            or `[num_batches, num_parts_next]`
-        :return: Generated hit set. Shape `[sum(size), hit_dim]`
-        """
-
+    def generate(self, z: Tensor, size: Tensor, initial_pred: Tensor = torch.tensor([])) -> Tensor:
         hits_per_batch = size if size.dim() == 1 else size.sum(dim=1)
-        initial_points = super().generate(z, size)
+        initial_points = super().generate(z, size, initial_pred)
         input_dim = initial_points.size(1)
 
         # put standard normal around paired predicted points

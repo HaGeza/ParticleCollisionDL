@@ -20,17 +20,14 @@ from src.Pairing import (
     VectorizedGreedyStrategy,
 )
 from src.Util import CoordinateSystemEnum
-from src.Util.Globals import DATA_DIR
+from src.Util.Paths import DATA_DIR, PRECOMPUTED_DATA_DIR, get_precomputed_data_path
 from src.Util.CoordinateSystemFuncs import convert_to_cartesian
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("-i", "--input", default="train_sample", help=f"path to the input dataset, relative to {DATA_DIR}")
-    ap.add_argument(
-        "-o", "--output", default="precomputed", help=f"directory to create the new dataset in, relative to {DATA_DIR}"
-    )
-    ap.add_argument("--use_shell_parts", default=True, action="store_true", help="use shell parts")
+    ap.add_argument("--no_shell_parts", default=False, action="store_true", help="do not use shell parts")
     ap.add_argument(
         "-t",
         "--time_step",
@@ -52,6 +49,7 @@ if __name__ == "__main__":
     )
 
     args = ap.parse_args()
+    use_shell_parts = not args.no_shell_parts
 
     # Create time step
     if args.time_step == TimeStepEnum.VOLUME_LAYER.value:
@@ -69,7 +67,7 @@ if __name__ == "__main__":
         else:  # if args.pairing_strategy == PairingStrategyEnum.HUNGARIAN.value:
             pairing_strategy = HungarianAlgorithmStrategy()
 
-        time_step = VLTimeStep(placement_strategy=placement_strategy, use_shell_part_sizes=args.use_shell_parts)
+        time_step = VLTimeStep(placement_strategy=placement_strategy, use_shell_part_sizes=use_shell_parts)
     else:
         raise ValueError(f"Time step {args.time_step} not implemented")
 
@@ -90,19 +88,28 @@ if __name__ == "__main__":
     )
 
     # Determine output path
-    out_name = f"{args.input}-{args.time_step}-{args.pairing_strategy}"
-    out_name += f"-parts" if args.use_shell_parts else ""
-    out_path = os.path.join(root_dir, DATA_DIR, args.output, out_name)
-    os.makedirs(out_path, exist_ok=True)
+    coord_system = CoordinateSystemEnum.CYLINDRICAL
+    out_path = get_precomputed_data_path(
+        root_dir,
+        args.input,
+        TimeStepEnum(args.time_step),
+        CoordinateSystemEnum(coord_system),
+        PlacementStrategyEnum(args.placement_strategy),
+        PairingStrategyEnum(args.pairing_strategy),
+        use_shell_parts,
+    )
+    if not os.path.exists(out_path):
+        os.makedirs(out_path)
 
     # Create precomputed dataset
-    coord_system = CoordinateSystemEnum.CYLINDRICAL
     T = time_step.get_num_time_steps()
+    gt_sizes = {os.path.basename(event_id): [] for event_id in data_loader.train_events + data_loader.val_events}
 
     for entry in tqdm(data_loader, desc="Computing..."):
         hits_tensor_list, batch_index_list, event_ids = entry
+        print(event_ids)
         out_files = {event_id: os.path.join(out_path, f"{event_id}.json") for event_id in event_ids}
-        if args.use_shell_parts:
+        if use_shell_parts:
             out_dicts = {
                 event_id: {t: [[] for _ in range(time_step.get_num_shell_parts(t))] for t in range(T)}
                 for event_id in event_ids
@@ -113,8 +120,8 @@ if __name__ == "__main__":
         for t in trange(T, leave=False, desc="Time steps"):
             hits_tensor = hits_tensor_list[t]
             batch_index = batch_index_list[t]
-            size_tensor, part_index = data_loader.get_gt_size(hits_tensor, batch_index, t, args.use_shell_parts)
-            part_index = part_index if args.use_shell_parts else None
+            size_tensor, part_index = data_loader.get_gt_size(hits_tensor, batch_index, t, use_shell_parts)
+            part_index = part_index if use_shell_parts else None
 
             if t > 0:
                 start_hits = time_step.place_hits(t, size_tensor, coord_system, device=device)
@@ -125,8 +132,10 @@ if __name__ == "__main__":
                 )
 
             for b, event_id in enumerate(event_ids):
+                gt_sizes[event_id].append(size_tensor[b].tolist())
+
                 batch_mask = batch_index == b
-                if args.use_shell_parts:
+                if use_shell_parts:
                     for p in range(time_step.get_num_shell_parts(t)):
                         part_mask = part_index == p
                         batch_part_hits = hits_tensor[batch_mask & part_mask]
@@ -146,3 +155,6 @@ if __name__ == "__main__":
         for event_id in event_ids:
             with open(out_files[event_id], "w") as f:
                 json.dump(out_dicts[event_id], f, indent=4)
+
+    with open(os.path.join(out_path, "gt_sizes.json"), "w") as f:
+        json.dump(gt_sizes, f, indent=4)

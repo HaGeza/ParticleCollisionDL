@@ -11,21 +11,28 @@ from torch.multiprocessing import set_start_method
 from src.TimeStep.ForAdjusting.PlacementStrategy import EquidistantStrategy, PlacementStrategyEnum, SinusoidStrategy
 from src.Util import CoordinateSystemEnum
 from src.TimeStep import TimeStepEnum
+from src.TimeStep.ForAdjusting import PrecomputedTimeStep
 from src.TimeStep.ForAdjusting.VolumeLayer import VLTimeStep
 from src.Pairing import PairingStrategyEnum
 from src.Trainer import Trainer
-from src.Data import CollisionEventLoader
+from src.Data import CollisionEventLoader, PrecomputedDataLoader
 from src.Modules.HitSetEncoder import HitSetEncoderEnum
 from src.Modules.HitSetSizeGenerator import HitSetSizeGeneratorEnum
 from src.Modules.HitSetGenerator import HitSetGeneratorEnum
 from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel
-from src.Util import DATA_DIR, MODELS_DIR, RESULTS_DIR
+from src.Util.Paths import DATA_DIR, MODELS_DIR, RESULTS_DIR, PRECOMPUTED_DATA_DIR, get_precomputed_data_path
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
 
     ap.add_argument("-d", "--dataset", default="train_sample", help=f"path to input dataset, relative to {DATA_DIR}")
+    ap.add_argument(
+        "--no_precomputed",
+        default=False,
+        action="store_true",
+        help="do not use precomputed dataset. Using a precomputed dataset is recommended.",
+    )
     ap.add_argument("-e", "--epochs", default=100, help="number of epochs to train the model")
     ap.add_argument("-b", "--batch_size", default=2, help="batch size for training")
     ap.add_argument("-l", "--lr", "--learning_rate", default=1e-3, help="learning rate for training")
@@ -58,7 +65,7 @@ if __name__ == "__main__":
     )
     ap.add_argument(
         "--pairing_strategy",
-        default=PairingStrategyEnum.KD_TREE.value,
+        default=PairingStrategyEnum.HUNGARIAN.value,
         help="type of pairing strategy to use",
         choices=[e.value for e in PairingStrategyEnum],
     )
@@ -82,7 +89,7 @@ if __name__ == "__main__":
     )
     ap.add_argument(
         "--set_generator",
-        default=HitSetGeneratorEnum.ADJUSTING.value,
+        default=HitSetGeneratorEnum.DDPM.value,
         help="type of hit set generator to use",
         choices=[e.value for e in HitSetGeneratorEnum],
     )
@@ -114,24 +121,39 @@ if __name__ == "__main__":
     # Set multiprocessing start method
     set_start_method("spawn", force=True)
 
-    # Initialize time step
     use_shell_part_sizes = not args.no_shell_part_sizes
-    if args.time_step == TimeStepEnum.VOLUME_LAYER:
-        if args.placement_strategy == PlacementStrategyEnum.SINUSOIDAL:
-            placement_strategy = SinusoidStrategy()
-        else:  # if args.placement_strategy== PlacementStrategyEnum.EQUIDISTANT:
-            placement_strategy = EquidistantStrategy()
+    if args.no_precomputed:
+        # Initialize time step
+        if args.time_step == TimeStepEnum.VOLUME_LAYER:
+            if args.placement_strategy == PlacementStrategyEnum.SINUSOIDAL:
+                placement_strategy = SinusoidStrategy()
+            else:  # if args.placement_strategy== PlacementStrategyEnum.EQUIDISTANT:
+                placement_strategy = EquidistantStrategy()
 
-        time_step = VLTimeStep(placement_strategy=placement_strategy, use_shell_part_sizes=use_shell_part_sizes)
+            time_step = VLTimeStep(placement_strategy=placement_strategy, use_shell_part_sizes=use_shell_part_sizes)
 
-    # Initialize data loader
-    data_loader = CollisionEventLoader(
-        os.path.join(root_dir, DATA_DIR, args.dataset),
-        time_step,
-        int(args.batch_size),
-        coordinate_system=args.coordinate_system,
-        device=device,
-    )
+        # Initialize data loader
+        data_loader = CollisionEventLoader(
+            os.path.join(root_dir, DATA_DIR, args.dataset),
+            time_step,
+            int(args.batch_size),
+            coordinate_system=args.coordinate_system,
+            device=device,
+        )
+    else:
+        # Initialize data loader
+        data_path = get_precomputed_data_path(
+            root_dir,
+            args.dataset,
+            args.time_step,
+            args.coordinate_system,
+            args.placement_strategy,
+            args.pairing_strategy,
+            use_shell_part_sizes,
+        )
+        data_loader = PrecomputedDataLoader(data_path, batch_size=int(args.batch_size), device=device)
+        # Initialize time step
+        time_step = PrecomputedTimeStep(data_loader)
 
     # Initialize model
     model = HitSetGenerativeModel(
