@@ -39,6 +39,13 @@ class IPairingStrategy:
             2. Number of pairs per batch. Shape `[num_batches]`
         """
 
+        original_device = pred.device.type
+        if original_device == "mps":
+            pred = pred.cpu()
+            gt = gt.cpu()
+            pred_ind = pred_ind.cpu()
+            gt_ind = gt_ind.cpu()
+
         # Create lists of batch predictions and ground truths
         num_batches = max(gt_ind.max() if len(gt_ind) > 0 else 0, pred_ind.max() if len(pred_ind) else 0) + 1
         pred_list = [pred[pred_ind == i] for i in range(num_batches)]
@@ -51,6 +58,13 @@ class IPairingStrategy:
             pairs_list = pool.map(self.create_pairs_in_batch, zip(pred_list, gt_list, pred_offsets, gt_offsets))
 
         pairs = torch.cat(pairs_list, dim=0)
+
+        if original_device == "mps":
+            pred = pred.to("mps")
+            gt = gt.to("mps")
+            pred_ind = pred_ind.to("mps")
+            gt_ind = gt_ind.to("mps")
+            pairs = pairs.to("mps")
 
         return pairs, torch.tensor([len(p) for p in pairs_list], device=pred.device)
 

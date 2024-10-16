@@ -5,6 +5,8 @@ from typing import Iterator
 from trackml.dataset import load_event
 from pandas.api.typing import DataFrameGroupBy
 import torch
+from torch import Tensor
+from torch.nn import functional as F
 
 from src.TimeStep import ITimeStep
 from src.Util import CoordinateSystemEnum
@@ -63,7 +65,7 @@ class CollisionEventLoader:
         self.train_events = events[:train_cutoff]
         self.val_events = events[train_cutoff:]
 
-    def _get_t_hit_tensor(self, grouped_hits: DataFrameGroupBy, t: int) -> torch.Tensor:
+    def _get_t_hit_tensor(self, grouped_hits: DataFrameGroupBy, t: int) -> Tensor:
         """
         Get the hit tensor for a given time step `t`.
 
@@ -77,17 +79,18 @@ class CollisionEventLoader:
             dtype=torch.float32,
             device=self.device,
         )
-        if self.normalize_hits:
-            hit_tensor = self.time_step.normalize_hit_tensor(hit_tensor, t)
 
         if self.coordinate_system == CoordinateSystemEnum.CYLINDRICAL:
             angles = torch.atan2(hit_tensor[:, 1], hit_tensor[:, 0])
             hit_tensor[:, 0] = torch.sqrt(hit_tensor[:, 0] ** 2 + hit_tensor[:, 1] ** 2)
             hit_tensor[:, 1] = angles
 
+        if self.normalize_hits:
+            hit_tensor = self.time_step.normalize_hit_tensor(hit_tensor, t, self.coordinate_system)
+
         return hit_tensor
 
-    def _reset_batch(self) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
+    def _reset_batch(self) -> tuple[list[Tensor], list[Tensor]]:
         """
         Get the zero tensor lists for hits and batch indices.
 
@@ -99,7 +102,37 @@ class CollisionEventLoader:
             [torch.empty(0, device=self.device, dtype=torch.long, requires_grad=False) for _ in range(self.num_t)],
         )
 
-    def iter_util(self, events: list[str]) -> Iterator[tuple[list[torch.Tensor], list[torch.Tensor]]]:
+    def get_gt_size(
+        self, gt_tensor: Tensor, gt_batch_index: Tensor, t: int, use_shell_parts: bool = True
+    ) -> tuple[Tensor, Tensor]:
+        """
+        Calculate ground truth sizes for shells / shell-parts
+
+        :param Tensor gt_tensor: The ground truth hit tensor
+        :param Tensor gt_batch_index: The ground truth batch index tensor
+        :param int t: The time
+        :param bool use_shell_part: Whether to use shell parts
+        :return Tensor: The ground truth sizes with shape `[num_batches]` and and empty Tensor
+            or if `self.model.use_shell_part_sizes` is `True`, a tuple of the ground truth sizes
+            with shape `[num_batches, num_parts]` and the part ids tensor with shape `[num_hits]`.
+        """
+        if use_shell_parts:
+            part_ids = self.time_step.assign_to_shell_parts(gt_tensor, t, self.coordinate_system)
+            num_parts = self.time_step.get_num_shell_parts(t)
+            batch_size = torch.max(gt_batch_index) + 1
+
+            batch_part_ids = gt_batch_index * num_parts + part_ids
+            _, gt_size = torch.unique(batch_part_ids, return_counts=True)
+
+            gt_size = F.pad(gt_size, (0, num_parts * batch_size - gt_size.size(0)), value=0)
+            gt_size = gt_size.view(batch_size, num_parts)
+
+            return gt_size.float().to(self.device), part_ids
+        else:
+            _, gt_size = torch.unique(gt_batch_index, return_counts=True)
+            return gt_size.float().to(self.device), torch.tensor([])
+
+    def iter_events(self, events: list[str]) -> Iterator[tuple[list[Tensor], list[Tensor]]]:
         """
         Iterate over the collision events and yield the hit and batch indices tensor lists.
 
@@ -141,23 +174,9 @@ class CollisionEventLoader:
         if index_in_batch > 0:
             yield hits_tensor_list, batch_index_list, event_ids
 
-    def iter_train(self) -> Iterator[tuple[list[torch.Tensor], list[torch.Tensor]]]:
-        """
-        Alias for `CollisionEventLoader.iter_util` with the training events
-        """
-
-        return self.iter_util(self.train_events)
-
-    def iter_val(self) -> Iterator[tuple[list[torch.Tensor], list[torch.Tensor]]]:
-        """
-        Alias for `CollisionEventLoader.iter_util` with the validation events
-        """
-
-        return self.iter_util(self.val_events)
-
-    def __iter__(self) -> Iterator[tuple[list[torch.Tensor], list[torch.Tensor]]]:
+    def __iter__(self) -> Iterator[tuple[list[Tensor], list[Tensor]]]:
         """
         Alias for `CollisionEventLoader.iter_train`
         """
 
-        return self.iter_train()
+        return self.iter_events(self.train_events)

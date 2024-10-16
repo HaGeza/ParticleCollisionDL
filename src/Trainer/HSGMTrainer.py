@@ -78,34 +78,6 @@ class Trainer:
         if model.device != device:
             model.to(device)
 
-    def _get_gt_size(self, gt_tensor: Tensor, gt_batch_index: Tensor, t: int) -> Tensor:
-        """
-        Calculate ground truth sizes for shells / shell-parts
-
-        :param Tensor gt_tensor: The ground truth hit tensor
-        :param Tensor gt_batch_index: The ground truth batch index tensor
-        :param int t: The time step
-        :return Tensor: The ground truth sizes. Shape `[num_batches]` or `[num_batches, num_parts]`
-            if `self.model.use_shell_part_sizes` is `True`
-        """
-        with torch.no_grad():
-            if self.model.use_shell_part_sizes:
-                part_ids = self.model.time_step.assign_to_shell_parts(gt_tensor, t, self.model.coordinate_system)
-                num_parts = self.model.time_step.get_num_shell_parts(t)
-                batch_size = torch.max(gt_batch_index) + 1
-
-                batch_part_ids = gt_batch_index * num_parts + part_ids
-                _, gt_size = torch.unique(batch_part_ids, return_counts=True)
-
-                gt_size = F.pad(gt_size, (0, num_parts * batch_size - gt_size.size(0)), value=0)
-                gt_size = gt_size.view(batch_size, num_parts)
-            else:
-                _, gt_size = torch.unique(gt_batch_index, return_counts=True)
-
-            gt_size = gt_size.float().to(self.device)
-
-        return gt_size
-
     def _get_hausdorff_distance(self, pred_tensor: Tensor, gt_tensor: Tensor) -> Tensor:
         """
         Calculate the Hausdorff distance between the predicted and ground truth hit sets.
@@ -123,12 +95,12 @@ class Trainer:
 
         return torch.tensor(max(pred_to_gt, gt_to_pred), dtype=torch.float32, device=self.device)
 
-    def evaluate(self, data_iter: callable) -> tuple[list[float], list[float]]:
+    def evaluate(self, data_loader: CollisionEventLoader, events: list[str]) -> tuple[list[float], list[float]]:
         """
         Evaluate the model using the given data iterator.
 
-        :param callable data_iter: The data iterator; Should be `CollisionEventLoader.iter_train`
-            or `CollisionEventLoader.iter_val`
+        :param callable data_iter: The data loader
+        :param list[str] events: The list of events to evaluate
         :return tuple[list[float], list[float]]: The mean Hausdorff distances and mean size MSEs
             per time step
         """
@@ -138,7 +110,7 @@ class Trainer:
         mses = [0] * (T - 1)
         num_entries = 0
 
-        for entry in tqdm(data_iter, leave=False, desc="Evaluating..."):
+        for entry in tqdm(data_loader.iter_events(events), leave=False, desc="Evaluating..."):
             hits_tensor_list, batch_index_list, _ = entry
 
             in_tensor = hits_tensor_list[0]
@@ -147,7 +119,7 @@ class Trainer:
             for t in range(1, T):
                 gt_tensor = hits_tensor_list[t]
                 gt_batch_index = batch_index_list[t].detach()
-                gt_size = self._get_gt_size(gt_tensor, gt_batch_index, t)
+                gt_size, _ = data_loader.get_gt_size(gt_tensor, gt_batch_index, t)
 
                 pred_size, pred_tensor = self.model.generate(in_tensor, in_batch_index, t)
 
@@ -248,10 +220,10 @@ class Trainer:
                 in_tensor = hits_tensor_list[0]
                 in_batch_index = batch_index_list[0].detach()
 
-                for t in range(1, T):
+                for t in trange(1, T, leave=False, desc="Time steps"):
                     gt_tensor = hits_tensor_list[t]
                     gt_batch_index = batch_index_list[t].detach()
-                    gt_size = self._get_gt_size(gt_tensor, gt_batch_index, t)
+                    gt_size, _ = data_loader.get_gt_size(gt_tensor, gt_batch_index, t)
 
                     self.optimizer.zero_grad()
 
@@ -295,8 +267,8 @@ class Trainer:
             if not no_log:
                 self.model.eval()
 
-                hd_train, mse_train = self.evaluate(data_loader.iter_train())
-                hd_val, mse_val = self.evaluate(data_loader.iter_val())
+                hd_train, mse_train = self.evaluate(data_loader, data_loader.train_events)
+                hd_val, mse_val = self.evaluate(data_loader, data_loader.val_events)
 
                 with open(eval_log, "a") as f:
                     row = [epoch, loss_mean]

@@ -26,12 +26,13 @@ class ITimeStep:
 
         raise NotImplementedError
 
-    def normalize_hit_tensor(self, hit_tensor: Tensor, t: int) -> Tensor:
+    def normalize_hit_tensor(self, hit_tensor: Tensor, t: int, coordinate_system: CoordinateSystemEnum) -> Tensor:
         """
         Normalize the hit tensor for the given time step.
 
         :param Tensor hit_tensor: The hit tensor to normalize
         :param int t: The time step to normalize the hit tensor for
+        :param CoordinateSystemEnum coordinate_system: The coordinate system used
         :return Tensor: The normalized hit tensor
         """
 

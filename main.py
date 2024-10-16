@@ -25,7 +25,7 @@ from src.Util import DATA_DIR, MODELS_DIR, RESULTS_DIR
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
 
-    ap.add_argument("-d", "--dataset", default="train_sample", help="path to input dataset")
+    ap.add_argument("-d", "--dataset", default="train_sample", help=f"path to input dataset, relative to {DATA_DIR}")
     ap.add_argument("-e", "--epochs", default=100, help="number of epochs to train the model")
     ap.add_argument("-b", "--batch_size", default=2, help="batch size for training")
     ap.add_argument("-l", "--lr", "--learning_rate", default=1e-3, help="learning rate for training")
@@ -102,7 +102,7 @@ if __name__ == "__main__":
 
     # Determine device: cuda > (mps >) cpu
     device = torch.device(
-        "cuda" if torch.cuda.is_available() else "cpu"  # "mps" if torch.backends.mps.is_available() else "cpu"
+        "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     )
 
     # Set random seeds

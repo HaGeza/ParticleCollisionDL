@@ -6,6 +6,7 @@ from src.Modules.HitSetProcessor import IHitSetProcessor
 from src.Pairing import PairingStrategyEnum
 from src.TimeStep.ForAdjusting import ITimeStepForAdjusting
 from src.Util import CoordinateSystemEnum
+from src.Util.CoordinateSystemFuncs import convert_to_cartesian
 from src.Util.Distributions import log_normal_diag, log_standard_normal
 from ..AdjustingSetGenerator import AdjustingSetGenerator
 from .BetaSchedules import IBetaSchedule
@@ -91,8 +92,11 @@ class DDPMSetGenerator(AdjustingSetGenerator):
 
         initial_points = super().generate(z, size)
 
-        pairs, num_pairs_per_batch = self.pairing_strategy.create_pairs(initial_points, gt, pred_ind, gt_ind)
-        diffs = gt[pairs[:, 1]] - initial_points[pairs[:, 0]]
+        initial_cart = convert_to_cartesian(initial_points, self.coordinate_system)
+        gt_cart = convert_to_cartesian(gt, self.coordinate_system)
+
+        pairs, num_pairs_per_batch = self.pairing_strategy.create_pairs(initial_cart, gt_cart, pred_ind, gt_ind)
+        diffs = gt_cart[pairs[:, 1]] - initial_cart[pairs[:, 0]]
         input_dim = initial_points.size(1)
 
         # create noisy steps

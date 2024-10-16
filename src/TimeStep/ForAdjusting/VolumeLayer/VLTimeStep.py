@@ -127,18 +127,23 @@ class VLTimeStep(ITimeStepForAdjusting):
 
         # Generate and return the hit set using the placement strategy, as a tensor of shape `[sum(size), 3]`
         hits = self.placement_strategy.place_points_in_rings(rings, ring_capacities, coordinate_system)
-        return self.normalize_hit_tensor(hits, t) if self.normalize_hits else hits
+        return self.normalize_hit_tensor(hits, t, coordinate_system) if self.normalize_hits else hits
 
-    def normalize_hit_tensor(self, hit_tensor: Tensor, t: int) -> Tensor:
+    def normalize_hit_tensor(self, hit_tensor: Tensor, t: int, coordinate_system: CoordinateSystemEnum) -> Tensor:
         """
-        Normalizes the hit tensor for the given time-step.
+        Normalizes the hit tensor for the given time-step
 
-        :param torch.Tensor hit_tensor: The hit tensor to normalize.
-        :param int t: The time-step to normalize the hit tensor for.
+        :param torch.Tensor hit_tensor: The hit tensor to normalize
+        :param int t: The time-step to normalize the hit tensor for
+        :param CoordinateSystemEnum coordinate_system: The coordinate system used
         :return: The normalized hit tensor.
         """
 
-        return hit_tensor / self.vl_scales[t]
+        if coordinate_system == CoordinateSystemEnum.CARTESIAN:
+            return hit_tensor / self.vl_scales[t]
+        else:  # coordinate_system == CoordinateSystemEnum.CYLINDRICAL
+            normalizer = torch.tensor([self.vl_scales[t], 1.0, self.vl_scales[t]], device=hit_tensor.device)
+            return hit_tensor / normalizer
 
     def get_max_squared_distance(self) -> float:
         """
