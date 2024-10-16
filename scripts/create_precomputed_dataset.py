@@ -12,7 +12,13 @@ from src.Data import CollisionEventLoader
 from src.TimeStep import TimeStepEnum
 from src.TimeStep.ForAdjusting.VolumeLayer import VLTimeStep
 from src.TimeStep.ForAdjusting.PlacementStrategy import EquidistantStrategy, PlacementStrategyEnum, SinusoidStrategy
-from src.Pairing import PairingStrategyEnum, RepeatedKDTreeStrategy, GreedyStrategy, VectorizedGreedyStrategy
+from src.Pairing import (
+    HungarianAlgorithmStrategy,
+    PairingStrategyEnum,
+    RepeatedKDTreeStrategy,
+    GreedyStrategy,
+    VectorizedGreedyStrategy,
+)
 from src.Util import CoordinateSystemEnum
 from src.Util.Globals import DATA_DIR
 from src.Util.CoordinateSystemFuncs import convert_to_cartesian
@@ -40,7 +46,7 @@ if __name__ == "__main__":
     )
     ap.add_argument(
         "--pairing_strategy",
-        default=PairingStrategyEnum.KD_TREE.value,
+        default=PairingStrategyEnum.HUNGARIAN.value,
         choices=[e.value for e in PairingStrategyEnum],
         help="pairing strategy",
     )
@@ -58,8 +64,10 @@ if __name__ == "__main__":
             pairing_strategy = RepeatedKDTreeStrategy(k=1)
         elif args.pairing_strategy == PairingStrategyEnum.GREEDY.value:
             pairing_strategy = GreedyStrategy()
-        else:  # if args.pairing_strategy == PairingStrategyEnum.VECTORIZED_GREEDY.value:
+        elif args.pairing_strategy == PairingStrategyEnum.VEC_GREEDY.value:
             pairing_strategy = VectorizedGreedyStrategy()
+        else:  # if args.pairing_strategy == PairingStrategyEnum.HUNGARIAN.value:
+            pairing_strategy = HungarianAlgorithmStrategy()
 
         time_step = VLTimeStep(placement_strategy=placement_strategy, use_shell_part_sizes=args.use_shell_parts)
     else:
@@ -106,12 +114,15 @@ if __name__ == "__main__":
             hits_tensor = hits_tensor_list[t]
             batch_index = batch_index_list[t]
             size_tensor, part_index = data_loader.get_gt_size(hits_tensor, batch_index, t, args.use_shell_parts)
+            part_index = part_index if args.use_shell_parts else None
 
             if t > 0:
                 start_hits = time_step.place_hits(t, size_tensor, coord_system, device=device)
                 hits_cart = convert_to_cartesian(hits_tensor, coord_system)
                 start_hits_cart = convert_to_cartesian(start_hits, coord_system)
-                pairings, _ = pairing_strategy.create_pairs(hits_cart, start_hits_cart, batch_index, batch_index)
+                pairings, _ = pairing_strategy.create_pairs(
+                    hits_cart, start_hits_cart, batch_index, batch_index, part_index, part_index
+                )
 
             for b, event_id in enumerate(event_ids):
                 batch_mask = batch_index == b

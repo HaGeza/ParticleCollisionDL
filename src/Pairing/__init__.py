@@ -3,3 +3,4 @@ from .IPairingStrategy import IPairingStrategy
 from .GreedyStrategy import GreedyStrategy
 from .VectorizedGreedyStrategy import VectorizedGreedyStrategy
 from .RepeatedKDTreeStrategy import RepeatedKDTreeStrategy
+from .HungarianAlgorithmStrategy import HungarianAlgorithmStrategy

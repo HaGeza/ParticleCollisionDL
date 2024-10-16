@@ -5,16 +5,6 @@ from .IPairingStrategy import IPairingStrategy
 
 class VectorizedGreedyStrategy(IPairingStrategy):
     def create_pairs_in_batch(self, args: tuple[Tensor, Tensor, int, int]) -> Tensor:
-        """
-        Create pairs of generated and ground-truth hits within a batch.
-
-        :param tuple args: Tuple of predicted and ground-truth hit sets and offsets, where
-            predicted hit set has shape `[num_hits_batch_i, hit_dim]`, ground truth hit set
-            has shape `[num_hits_next_batch_i, hit_dim]`, and offsets are the indices of the
-            first hit in the batch.
-        :return Tensor: Pairing tensor. Shape `[min(num_hits_batch_i, num_hits_next_batch_i), 2]`
-        """
-
         pred, gt, pred_offset, gt_offset = args
 
         num_pairs_req = min(pred.size(0), gt.size(0))

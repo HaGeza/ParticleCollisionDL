@@ -3,6 +3,7 @@ from torch import Tensor
 
 from src.TimeStep.ForAdjusting import ITimeStepForAdjusting
 from src.Pairing import (
+    HungarianAlgorithmStrategy,
     PairingStrategyEnum,
     IPairingStrategy,
     GreedyStrategy,
@@ -54,8 +55,8 @@ class AdjustingSetGenerator(IHitSetGenerator):
             self.pairing_strategy = RepeatedKDTreeStrategy()
         elif pairing_strategy_type == PairingStrategyEnum.VEC_GREEDY:
             self.pairing_strategy = VectorizedGreedyStrategy()
-        else:
-            raise ValueError(f"Unknown pairing strategy: {pairing_strategy_type}")
+        else:  # if args.pairing_strategy == PairingStrategyEnum.HUNGARIAN.value:
+            self.pairing_strategy = HungarianAlgorithmStrategy()
 
         self.max_pair_loss = time_step.get_max_squared_distance()
 
@@ -73,7 +74,9 @@ class AdjustingSetGenerator(IHitSetGenerator):
         """
 
         pred = self.generate(z, size)
-        return pred, self.pairing_strategy.calculate_loss(pred, gt, pred_ind, gt_ind, self.coordinate_system)
+        return pred, self.pairing_strategy.calculate_loss(
+            pred, gt, pred_ind, gt_ind, coordinate_system=self.coordinate_system
+        )
 
     def generate(self, z: Tensor, size: Tensor) -> Tensor:
         """
