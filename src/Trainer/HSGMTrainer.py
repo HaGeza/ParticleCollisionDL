@@ -87,11 +87,19 @@ class Trainer:
         :return Tensor: The Hausdorff distance
         """
 
-        pred_hits = pred_tensor.cpu().detach().numpy()
-        gt_hits = gt_tensor.cpu().detach().numpy()
+        if pred_tensor.size(0) == 0 or gt_tensor.size(0) == 0:
+            return torch.tensor(0.0, dtype=torch.float32, device=self.device)
 
-        pred_to_gt = directed_hausdorff(pred_hits, gt_hits)[0]
-        gt_to_pred = directed_hausdorff(gt_hits, pred_hits)[0]
+        if pred_tensor.device.type != "cuda":
+            pred_hits = pred_tensor.cpu().numpy()
+            gt_hits = gt_tensor.cpu().numpy()
+
+            pred_to_gt = directed_hausdorff(pred_hits, gt_hits)[0]
+            gt_to_pred = directed_hausdorff(gt_hits, pred_hits)[0]
+        else:
+            dists = torch.cdist(pred_tensor, gt_tensor, p=2)
+            pred_to_gt = torch.min(dists, dim=1)[0].max(dim=0)[0].item()
+            gt_to_pred = torch.min(dists, dim=0)[0].max(dim=0)[0].item()
 
         return torch.tensor(max(pred_to_gt, gt_to_pred), dtype=torch.float32, device=self.device)
 
@@ -117,18 +125,35 @@ class Trainer:
             in_batch_index = batch_index_list[0].detach()
             in_dim = in_tensor.size(1)
 
-            for t in range(1, T):
+            for t in trange(1, T, leave=False, desc="Time steps"):
                 gt_tensor = hits_tensor_list[t][:, :in_dim]
-                initial_pred = hits_tensor_list[t][:, in_dim:]
 
                 gt_batch_index = batch_index_list[t].detach()
-                gt_size, _ = data_loader.get_gt_size(gt_tensor, gt_batch_index, t, event_ids)
+                gt_size, _ = data_loader.get_gt_size(gt_tensor, gt_batch_index, t, events=event_ids)
+                B = gt_size.size(0)
 
-                pred_size, pred_tensor = self.model.generate(in_tensor, in_batch_index, t, initial_pred)
+                pred_size, pred_tensor = self.model.generate(in_tensor, in_batch_index, t, batch_size=B)
 
-                hds[t - 1] += self._get_hausdorff_distance(pred_tensor, gt_tensor).item()
+                used_size = torch.clamp(pred_size, min=0.0).round().int()
+                if used_size.dim() > 1:
+                    used_size = used_size.sum(dim=1)
+
+                if used_size.sum() > 0:
+                    pred_batch_index = torch.repeat_interleave(
+                        torch.arange(len(used_size), device=self.device), used_size
+                    )
+                    for b in range(B):
+                        hds[t - 1] += self._get_hausdorff_distance(
+                            pred_tensor[pred_batch_index == b], gt_tensor[gt_batch_index == b]
+                        ).item()
+                else:
+                    pred_batch_index = torch.tensor([], device=self.device, dtype=torch.long)
+
                 mses[t - 1] += F.mse_loss(pred_size, gt_size).item()
-                num_entries += gt_size.size(0)
+                num_entries += B
+
+                in_tensor = pred_tensor
+                in_batch_index = pred_batch_index
 
         return [hd / num_entries for hd in hds], [mse / num_entries for mse in mses]
 
@@ -218,7 +243,6 @@ class Trainer:
             num_entries = 0
 
             for entry in tqdm(data_loader, desc=f"Epoch {epoch + 1}/{epochs}", leave=False):
-                break
                 hits_tensor_list, batch_index_list, event_ids = entry
 
                 in_tensor = hits_tensor_list[0]
@@ -230,7 +254,7 @@ class Trainer:
                     initial_pred = hits_tensor_list[t][:, in_dim:]
 
                     gt_batch_index = batch_index_list[t].detach()
-                    gt_size, _ = data_loader.get_gt_size(gt_tensor, gt_batch_index, t)
+                    gt_size, _ = data_loader.get_gt_size(gt_tensor, gt_batch_index, t, events=event_ids)
 
                     self.optimizer.zero_grad()
 
@@ -274,8 +298,9 @@ class Trainer:
             if not no_log:
                 self.model.eval()
 
-                hd_train, mse_train = self.evaluate(data_loader, data_loader.train_events)
-                hd_val, mse_val = self.evaluate(data_loader, data_loader.val_events)
+                with torch.no_grad():
+                    hd_train, mse_train = self.evaluate(data_loader, data_loader.train_events)
+                    hd_val, mse_val = self.evaluate(data_loader, data_loader.val_events)
 
                 with open(eval_log, "a") as f:
                     row = [epoch, loss_mean]

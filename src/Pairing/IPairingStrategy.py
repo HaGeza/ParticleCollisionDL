@@ -46,7 +46,7 @@ class IPairingStrategy:
         gt_batch_ind: Tensor,
         pred_part_ind: Tensor = None,
         gt_part_ind: Tensor = None,
-        initial_pred: Tensor = torch.tensor([]),
+        paired: bool = False,
     ) -> tuple[Tensor, Tensor]:
         """
         Create pairs of generated and ground-truth hits.
@@ -57,15 +57,14 @@ class IPairingStrategy:
         :param Tensor gt_batch_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`
         :param Tensor pred_part_ind: Predicted hit part index tensor. `None` or tensor with shape `[num_hits]`.
         :param Tensor gt_part_ind: Ground truth hit part index tensor. `None` or tensor with shape `[num_hits_next]`.
-        :param Tensor initial_pred: Initial prediction. Shape `[num_hits_next, hit_dim]`
-            or empty tensor if no initial prediction is available.
+        :param bool paired: Whether the pairing is precomputed
         :return tuple[Tensor, Tensor]: A tuple containing two Tensors:
             1. Pairing tensor. Shape `[sum(min(num_hits_batch_i, num_hits_next_batch_i)), 2]`
             2. Number of pairs per batch or per batch-part combination. Shape `[num_batches]`
                 or `[num_batches * num_parts]`.
         """
 
-        if len(initial_pred) > 0:
+        if paired:
             if pred_part_ind is None or gt_part_ind is None:
                 _, pair_counts = torch.unique(pred_batch_ind, return_counts=True)
             else:

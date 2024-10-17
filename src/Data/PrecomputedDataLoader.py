@@ -38,9 +38,15 @@ class PrecomputedDataLoader(IDataLoader):
         if not os.path.exists(dataset_path):
             raise FileNotFoundError(f"Dataset path {dataset_path} does not exist")
 
+        gt_sizes_file = "gt_sizes.json"
+
         events = []
         for root, _, files in os.walk(dataset_path):
-            events += [os.path.join(root, f.rsplit(".")[0]) for f in files if f.endswith(".json")]
+            events += [
+                os.path.join(root, f.rsplit(".")[0])
+                for f in files
+                if f.endswith(".json") and not f.endswith(gt_sizes_file)
+            ]
 
         train_cutoff = int((1 - val_ratio) * len(events))
         self.train_events = events[:train_cutoff]
@@ -57,7 +63,7 @@ class PrecomputedDataLoader(IDataLoader):
                 self.hits_size = len(list(data.values())[0][0])
 
         # Read ground truth sizes
-        with open(os.path.join(dataset_path, "gt_sizes.json"), "r") as f:
+        with open(os.path.join(dataset_path, gt_sizes_file), "r") as f:
             self.gt_sizes = json.load(f)
 
     def _reset_batch(self) -> tuple[list[Tensor], list[Tensor]]:
@@ -76,12 +82,17 @@ class PrecomputedDataLoader(IDataLoader):
         self, gt_tensor: Tensor, gt_batch_index: Tensor, t: int, use_shell_parts: bool = True, events: list[str] = []
     ) -> tuple[Tensor, Tensor]:
         gt_size = torch.stack(
-            [self.gt_sizes[event_id][t] for event_id in events], dim=1, device=self.device, dtype=torch.long
+            [torch.tensor(self.gt_sizes[event_id][t], dtype=torch.float32, device=self.device) for event_id in events],
+            dim=0,
         )
         part_ids = torch.tensor([], device=self.device, dtype=torch.long)
-        if not use_shell_parts:
+        if use_shell_parts:
             part_ids = torch.cat(
-                [torch.repeat_interleave(torch.arange(len(row), device=self.device), row) for row in gt_size], dim=0
+                [
+                    torch.repeat_interleave(torch.arange(len(row), device=self.device, dtype=torch.long), row.long())
+                    for row in gt_size
+                ],
+                dim=0,
             )
         return gt_size, part_ids
 
@@ -123,9 +134,9 @@ class PrecomputedDataLoader(IDataLoader):
                     event_ids = []
                     index_in_batch = 0
 
-            # Yield the last batch if it is not empty
-            if index_in_batch > 0:
-                yield hits_tensor_list, batch_index_list, event_ids
+        # Yield the last batch if it is not empty
+        if index_in_batch > 0:
+            yield hits_tensor_list, batch_index_list, event_ids
 
     def __iter__(self) -> Iterator[tuple[list[Tensor], list[Tensor], list[str]]]:
         return self.iter_events(self.train_events)

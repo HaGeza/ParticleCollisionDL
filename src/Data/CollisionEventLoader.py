@@ -128,7 +128,6 @@ class CollisionEventLoader(IDataLoader):
 
         # Iterate over event files
         event_list = random.sample(events, len(events)) if self.shuffle else events
-        print(len(event_list))
         for event in event_list:
             hits, _cells, _particles, _truth = load_event(event)
             self.time_step.define_time_step(hits)

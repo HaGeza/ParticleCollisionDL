@@ -86,13 +86,14 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         size: Tensor,
         initial_pred: Tensor = torch.tensor([]),
     ) -> tuple[Tensor, Tensor]:
+        paired = initial_pred.size(0) > 0
         initial_pred = super().generate(z, size, initial_pred)
 
         initial_pred_cart = convert_to_cartesian(initial_pred, self.coordinate_system)
         gt_cart = convert_to_cartesian(gt, self.coordinate_system)
 
         pairs, num_pairs_per_batch = self.pairing_strategy.create_pairs(
-            initial_pred_cart, gt_cart, pred_ind, gt_ind, initial_pred
+            initial_pred_cart, gt_cart, pred_ind, gt_ind, paired=paired
         )
         diffs = gt_cart[pairs[:, 1]] - initial_pred_cart[pairs[:, 0]]
         input_dim = initial_pred.size(1)
@@ -132,14 +133,14 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         input_dim = initial_points.size(1)
 
         # put standard normal around paired predicted points
-        diffs = torch.randn_like(initial_points)
+        diffs = torch.randn_like(initial_points, device=self.device)
 
         # denoise movement distributions
         zs = torch.cat([z[i].repeat(hits_per_batch[i], 1) for i in range(z.size(0))], dim=0)
         for i in range(self.num_steps):
             out = self.processors[i](torch.cat([zs, diffs], dim=1))
             mu, log_var = out[:, :input_dim], out[:, input_dim:]
-            diffs = mu + torch.randn_like(diffs) * torch.exp(0.5 * log_var)
+            diffs = mu + torch.randn_like(diffs, device=self.device) * torch.exp(0.5 * log_var)
 
         # move points according to sample from denoised movement distributions
         return initial_points + diffs

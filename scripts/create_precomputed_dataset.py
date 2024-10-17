@@ -107,7 +107,6 @@ if __name__ == "__main__":
 
     for entry in tqdm(data_loader, desc="Computing..."):
         hits_tensor_list, batch_index_list, event_ids = entry
-        print(event_ids)
         out_files = {event_id: os.path.join(out_path, f"{event_id}.json") for event_id in event_ids}
         if use_shell_parts:
             out_dicts = {

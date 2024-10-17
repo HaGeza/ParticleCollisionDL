@@ -20,31 +20,23 @@ class GlobalPoolingEncoder(IHitSetEncoder):
         """
         super().__init__()
 
+        self.device = device
         self.processor = processor
 
-    def forward(self, x: Tensor, x_ind: Tensor) -> Tensor:
-        """
-        Forward pass of the encoder.
-
-        :param Tensor x: The input tensor containing the hit point-cloud. Shape: `[num_hits, input_dim]`.
-        :param Tensor x_ind: The batch index tensor. Shape: `[num_hits]`.
-        :return Tensor: The output tensor encoding information about the hit point-cloud.
-        """
+    def forward(self, x: Tensor, x_ind: Tensor, batch_size: int = 0) -> Tensor:
         x = self.processor(x)
 
-        out_size = x_ind.max().item() + 1
+        out_size = x_ind.max().item() + 1 if batch_size == 0 else batch_size
         out = torch.full((out_size, x.size(1)), -float("inf"), device=x.device)
 
         for i in range(out_size):
-            out[i] = x[x_ind == i].max(dim=0).values
+            batch = x[x_ind == i]
+            if batch.size(0) > 0:
+                out[i] = x[x_ind == i].max(dim=0).values
+            else:
+                out[i] = torch.zeros_like(out[i])
 
         return out
 
     def get_encoding_dim(self) -> int:
-        """
-        Get the dimension of the encoding.
-
-        :return int: Dimension of the encoding.
-        """
-
         return self.processor.get_output_dim()

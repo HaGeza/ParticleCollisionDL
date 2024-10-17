@@ -122,16 +122,19 @@ if __name__ == "__main__":
     set_start_method("spawn", force=True)
 
     use_shell_part_sizes = not args.no_shell_part_sizes
+
+    # Initialize time step
+    if args.time_step == TimeStepEnum.VOLUME_LAYER:
+        if args.placement_strategy == PlacementStrategyEnum.SINUSOIDAL:
+            placement_strategy = SinusoidStrategy()
+        else:  # if args.placement_strategy== PlacementStrategyEnum.EQUIDISTANT:
+            placement_strategy = EquidistantStrategy()
+
+        time_step = VLTimeStep(placement_strategy=placement_strategy, use_shell_part_sizes=use_shell_part_sizes)
+    else:
+        raise NotImplementedError(f"Time step {args.time_step} is not implemented")
+
     if args.no_precomputed:
-        # Initialize time step
-        if args.time_step == TimeStepEnum.VOLUME_LAYER:
-            if args.placement_strategy == PlacementStrategyEnum.SINUSOIDAL:
-                placement_strategy = SinusoidStrategy()
-            else:  # if args.placement_strategy== PlacementStrategyEnum.EQUIDISTANT:
-                placement_strategy = EquidistantStrategy()
-
-            time_step = VLTimeStep(placement_strategy=placement_strategy, use_shell_part_sizes=use_shell_part_sizes)
-
         # Initialize data loader
         data_loader = CollisionEventLoader(
             os.path.join(root_dir, DATA_DIR, args.dataset),
@@ -153,7 +156,7 @@ if __name__ == "__main__":
         )
         data_loader = PrecomputedDataLoader(data_path, batch_size=int(args.batch_size), device=device)
         # Initialize time step
-        time_step = PrecomputedTimeStep(data_loader)
+        time_step = PrecomputedTimeStep(data_loader, time_step)
 
     # Initialize model
     model = HitSetGenerativeModel(

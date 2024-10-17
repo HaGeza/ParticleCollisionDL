@@ -140,7 +140,7 @@ class HitSetGenerativeModel(nn.Module):
             hit set size, the generated hit set, the size loss and the set loss.
         """
 
-        z = self.encoders[t - 1](x, x_ind)
+        z = self.encoders[t - 1](x, x_ind, gt_size.size(0))
         pred_size = self.size_generators[t - 1](z, gt, gt_ind)
         size_loss = F.mse_loss(pred_size, gt_size)
 
@@ -160,7 +160,7 @@ class HitSetGenerativeModel(nn.Module):
         return pred_size, pred_hits, size_loss, set_loss
 
     def generate(
-        self, x: Tensor, x_ind: Tensor, t: int, initial_pred: Tensor = torch.tensor([])
+        self, x: Tensor, x_ind: Tensor, t: int, initial_pred: Tensor = torch.tensor([]), batch_size: int = 0
     ) -> tuple[Tensor, Tensor]:
         """
         Generate the hit set at time t+1 given the hit set at time t.
@@ -170,14 +170,16 @@ class HitSetGenerativeModel(nn.Module):
         :param int t: Time step to generate the hit set for.
         :param Tensor initial_pred: Initial prediction for the hit set at time t+1.
             Shape `[num_hits_next, hit_dim]` or empty tensor if no initial prediction is available.
+        :param int batch_size: Batch size to use for the set generation. If 0, try to determine the batch size
+            from `x_ind`.
         :return tuple[Tensor, Tensor]: Tuple containing the generated hit set size and the generated hit set.
             If self.set_generators[t - 1] is None, the hit set is an empty tensor.
         """
 
-        z = self.encoders[t - 1](x, x_ind)
+        z = self.encoders[t - 1](x, x_ind, batch_size)
         size = self.size_generators[t - 1].generate(z)
         hits = (
-            self.set_generators[t - 1].generate(z, size.round().int().clamp(min=0))
+            self.set_generators[t - 1].generate(z, size.round().int().clamp(min=0), initial_pred)
             if self.set_generators[t - 1] is not None
             else torch.tensor([], device=self.device)
         )
