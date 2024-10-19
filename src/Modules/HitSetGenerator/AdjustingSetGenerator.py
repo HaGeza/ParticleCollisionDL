@@ -2,7 +2,14 @@ import torch
 from torch import Tensor
 
 from src.TimeStep.ForAdjusting import ITimeStepForAdjusting
-from src.Pairing import PairingStrategyEnum, IPairingStrategy, GreedyStrategy, RepeatedKDTreeStrategy
+from src.Pairing import (
+    HungarianAlgorithmStrategy,
+    PairingStrategyEnum,
+    IPairingStrategy,
+    GreedyStrategy,
+    RepeatedKDTreeStrategy,
+    VectorizedGreedyStrategy,
+)
 from src.Util import CoordinateSystemEnum
 from .IHitSetGenerator import IHitSetGenerator
 
@@ -18,8 +25,6 @@ class AdjustingSetGenerator(IHitSetGenerator):
         time_step: ITimeStepForAdjusting,
         pairing_strategy_type: PairingStrategyEnum,
         coordinate_system: CoordinateSystemEnum,
-        encoding_dim: int = 16,
-        hit_dim: int = 3,
         device: str = "cpu",
     ):
         """
@@ -42,53 +47,34 @@ class AdjustingSetGenerator(IHitSetGenerator):
         self.t = t
         self.time_step = time_step
         self.coordinate_system = coordinate_system
-        self.encoding_dim = encoding_dim
-        self.hit_dim = hit_dim
 
         self.pairing_strategy: IPairingStrategy = None
         if pairing_strategy_type == PairingStrategyEnum.GREEDY:
             self.pairing_strategy = GreedyStrategy()
         elif pairing_strategy_type == PairingStrategyEnum.KD_TREE:
             self.pairing_strategy = RepeatedKDTreeStrategy()
-        else:
-            raise ValueError(f"Unknown pairing strategy: {pairing_strategy_type}")
+        elif pairing_strategy_type == PairingStrategyEnum.VEC_GREEDY:
+            self.pairing_strategy = VectorizedGreedyStrategy()
+        else:  # if args.pairing_strategy == PairingStrategyEnum.HUNGARIAN.value:
+            self.pairing_strategy = HungarianAlgorithmStrategy()
 
-        self.max_pair_loss = self.pairing_strategy.__class__.MAX_PAIR_LOSS
+    def forward(
+        self,
+        z: Tensor,
+        gt: Tensor,
+        pred_ind: Tensor,
+        gt_ind: Tensor,
+        size: Tensor,
+        initial_pred: Tensor = torch.tensor([]),
+    ) -> tuple[Tensor, Tensor]:
+        pred = self.generate(z, size)
+        return pred, self.pairing_strategy.calculate_loss(
+            pred, gt, pred_ind, gt_ind, coordinate_system=self.coordinate_system
+        )
 
-    def forward(self, _x: Tensor, _gt: Tensor, _gt_ind: Tensor, size: Tensor) -> Tensor:
-        """
-        Forward pass of the adjusting set generator.
-
-        :param Tensor _x: Input tensor. Shape `[encoding_dim]`
-        :param Tensor _gt: Ground truth tensor. Shape `[num_hits_next, hit_dim]`
-        :param Tensor _gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`
-        :param Tensor size: Size of the generated hit point-cloud.
-        :return: Generated hit set. Shape `[sum(size), hit_dim]`
-        """
-
-        with torch.no_grad():
-            return self.time_step.place_hits(self.t, size, self.coordinate_system, self.device)
-
-    def generate(self, _x: Tensor, size: Tensor) -> Tensor:
-        """
-        Generate a hit set.
-
-        :param Tensor _x: (UNUSED) Input tensor. Shape `[encoding_dim]`
-        :param Tensor size: Size of the generated hit point-cloud.
-        :return: Generated hit set. Shape `[sum(size), hit_dim]`
-        """
+    def generate(self, z: Tensor, size: Tensor, initial_pred: Tensor = torch.tensor([])) -> Tensor:
+        if initial_pred.size(0) > 0:
+            return initial_pred
 
         with torch.no_grad():
-            return self.time_step.place_hits(self.t, size, self.coordinate_system, self.device)
-
-    def calc_loss(self, pred_tensor: Tensor, gt_tensor: Tensor, pred_ind: Tensor, gt_ind: Tensor) -> Tensor:
-        """
-        Calculate the loss of the adjusting set generator.
-
-        :param Tensor pred_tensor: Predicted hit tensor. Shape `[num_hits_pred, hit_dim]`
-        :param Tensor gt_tensor: Ground truth hit tensor. Shape `[num_hits_act, hit_dim]`
-        :param Tensor pred_ind: Predicted hit batch index tensor. Shape `[num_hits_pred]`
-        "param Tensor gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_act]`
-        """
-
-        return self.pairing_strategy.calculate_loss(pred_tensor, gt_tensor, pred_ind, gt_ind, self.coordinate_system)
+            return self.time_step.place_hits(self.t + 1, size, self.coordinate_system, device=self.device)

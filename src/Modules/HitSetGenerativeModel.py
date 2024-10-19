@@ -2,7 +2,10 @@ import torch
 from torch import nn, Tensor
 import torch.nn.functional as F
 
-from src.Modules.HitSetEncoder import HitSetEncoderEnum, PointNetEncoder
+from src.Modules.HitSetEncoder import HitSetEncoderEnum, GlobalPoolingEncoder
+from src.Modules.HitSetGenerator.DDPM import DDPMSetGenerator
+from src.Modules.HitSetGenerator.DDPM.BetaSchedules import CosineBetaSchedule
+from src.Modules.HitSetProcessor import PointNetProcessor
 from src.Modules.HitSetSizeGenerator import GaussianSizeGenerator, HitSetSizeGeneratorEnum
 from src.Modules.HitSetGenerator import AdjustingSetGenerator, HitSetGeneratorEnum
 from src.Pairing import PairingStrategyEnum
@@ -28,100 +31,156 @@ class HitSetGenerativeModel(nn.Module):
         time_step: ITimeStep,
         pairing_strategy_type: PairingStrategyEnum,
         coordinate_system: CoordinateSystemEnum,
-        device: str,
+        use_shell_part_sizes: bool,
+        input_dim: int = 3,
+        encoding_dim: int = 16,
+        device: str = "cpu",
     ):
         """
         :param HitSetEncoderEnum encoder_type: Type of encoder to use.
         :param HitSetSizeGeneratorEnum size_generator_type: Type of size generator to use.
         :param HitSetGeneratorEnum set_generator_type: Type of set generator to use.
         :param ITimeStep time_step: Time step object used to create the pseudo-time-step and to pass to the set generator.
+        :param PairingStrategyEnum pairing_strategy_type: Pairing strategy to use for reconstruction loss.
+        :param CoordinateSystemEnum coordinate_system: Coordinate system to use for input.
+        :param bool use_shell_part_sizes: Whether to use shell part sizes for the loss calculation.
+        :param int input_dim: Dimension of the input hits.
+        :param int encoding_dim: Dimension of the encoded hits.
+        :param str device: Device to run the model on.
         """
 
         super().__init__()
 
         self.time_step = time_step
+        self.coordinate_system = coordinate_system
+        self.use_shell_part_sizes = use_shell_part_sizes
+        self.input_dim = input_dim
+        self.encoding_dim = encoding_dim
         self.device = device
         self.to(device)
+
+        self.information = {
+            "encoder": encoder_type.value,
+            "size_generator": size_generator_type.value,
+            "set_generator": set_generator_type.value,
+            "time_step": time_step.__class__.__name__,
+            "pairing_strategy": pairing_strategy_type.value,
+            "coordinate_system": coordinate_system.value,
+            "using_shell_part_sizes": use_shell_part_sizes,
+        }
 
         self.encoders = nn.ModuleList()
         self.size_generators = nn.ModuleList()
         self.set_generators = nn.ModuleList()
 
-        for t in range(time_step.get_num_time_steps()):
+        for t in range(time_step.get_num_time_steps() - 1):
             if encoder_type == HitSetEncoderEnum.POINT_NET:
-                self.encoders.append(PointNetEncoder(device=device))
+                processor = PointNetProcessor(device=device)
+                self.encoders.append(GlobalPoolingEncoder(processor, device=device))
 
+            num_sizes = 1 if not use_shell_part_sizes else time_step.get_num_shell_parts(t + 1)
             if size_generator_type == HitSetSizeGeneratorEnum.GAUSSIAN:
-                self.size_generators.append(GaussianSizeGenerator(device=device))
+                self.size_generators.append(GaussianSizeGenerator(num_size_samples=num_sizes, device=device))
 
             if set_generator_type == HitSetGeneratorEnum.ADJUSTING:
                 self.set_generators.append(
                     AdjustingSetGenerator(t, time_step, pairing_strategy_type, coordinate_system, device=device)
                 )
+            elif set_generator_type == HitSetGeneratorEnum.NONE:
+                self.set_generators.append(None)
+            elif set_generator_type == HitSetGeneratorEnum.DDPM:
+                num_steps = 100
+                beta_schedule = CosineBetaSchedule(offset=0.002, num_steps=num_steps)
+                denoising_processors = [
+                    PointNetProcessor(input_dim=encoding_dim + input_dim, hidden_dim=2 * input_dim, device=device)
+                    for _ in range(num_steps)
+                ]
+                decoder = PointNetProcessor(input_dim=encoding_dim + input_dim, hidden_dim=input_dim, device=device)
 
-    def forward(self, x: Tensor, gt: Tensor, x_ind: Tensor, gt_ind: Tensor, t: int) -> tuple[Tensor, Tensor, Tensor]:
+                self.set_generators.append(
+                    DDPMSetGenerator(
+                        t,
+                        time_step,
+                        pairing_strategy_type,
+                        coordinate_system,
+                        num_steps,
+                        beta_schedule,
+                        denoising_processors,
+                        decoder,
+                        device=device,
+                    )
+                )
+
+    def forward(
+        self,
+        x: Tensor,
+        gt: Tensor,
+        x_ind: Tensor,
+        gt_ind: Tensor,
+        gt_size: Tensor,
+        t: int,
+        initial_pred: Tensor = torch.tensor([]),
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
         """
         Forward pass of the hit-set generative model.
 
         :param Tensor x: Input hit tensor. Shape `[num_hits, hit_dim]`
         :param Tensor gt: Ground truth hit tensor. Shape `[num_hits_next, hit_dim]`
+            or `[num_hits_next, 2 * hit_dim]` if using precomputed data, in which case
+            the second half of each row in `gt` is the initial position of the pair
+            of the corresponding hit in the first half.
         :param Tensor x_ind: Input hit batch index tensor. Shape `[num_hits]`
         :param Tensor gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`
-        :return tuple[Tensor, Tensor, Tensor]: Tuple containing the generated hit set size,
-            the hit set sizes used for set generation (rounded to integers), and the generated hit set.
+        :param Tensor gt_size: Ground truth hit set size tensor. Shape `[num_batches]`
+            or `[num_batches, num_parts_next]`
+        :param int t: Time step to generate the hit set for.
+        :param Tensor initial_pred: Initial prediction for the hit set at time t+1.
+            Shape `[num_hits_next, hit_dim]` or empty tensor if no initial prediction is available.
+        :return tuple[Tensor, Tensor, Tensor, Tensor]: Tuple containing the generated
+            hit set size, the generated hit set, the size loss and the set loss.
         """
 
-        z = self.encoders[t](x, x_ind)
-        size = self.size_generators[t](z, gt, gt_ind)
-        with torch.no_grad():
-            size_int = size.round().int()
-        return size, size_int, self.set_generators[t](z, gt, gt_ind, size_int)
+        z = self.encoders[t - 1](x, x_ind, gt_size.size(0))
+        pred_size = self.size_generators[t - 1](z, gt, gt_ind)
+        size_loss = F.mse_loss(pred_size, gt_size)
 
-    def calc_loss(
-        self,
-        pred_size: Tensor,
-        used_size: Tensor,
-        pred_tensor: Tensor,
-        gt_size: Tensor,
-        gt_tensor: Tensor,
-        gt_ind: Tensor,
-        t: int,
-        size_loss_ratio: float = 0.25,
-    ) -> Tensor:
-        """
-        Calculate the loss of the hit-set generative model. The loss consists of two parts:
-        1. Loss incurred by the size prediction (MAX_PAIR_LOSS for each missing / additional predicted hit)
-        2. Loss incurred by the set prediction (uses the loss function of the set generator).
+        if self.set_generators[t - 1] is not None:
+            # Use the ground truth sizes (rounded to integers) for set generation
+            with torch.no_grad():
+                used_size = torch.clamp(gt_size, min=0.0).round().int()
 
-        :param Tensor pred_size: Predicted hit set size tensor. Shape `[batch_num]`
-        :param Tensor used_size: Hit set size used for set generation (rounded to integers). Shape `[batch_num]`
-        :param Tensor pred_tensor: Predicted hit tensor. Shape `[num_hits_next, hit_dim]`
-        :param Tensor gt_size: Ground truth hit set size tensor. Shape `[batch_num]`
-        :param Tensor gt_tensor: Ground truth hit tensor. Shape `[num_hits_next, hit_dim]`
-        :param Tensor gt_ind: Ground truth hit batch index tensor. Shape `[num_hits_next]`
-        :param int t: Time step to calculate the loss for.
-        :param float size_loss_ratio: Ratio of the size loss to the set loss.
-        :return: Loss tensor.
-        """
+            # Calculate the indices for the pairing strategy
+            flat_size = used_size if used_size.dim() == 1 else used_size.sum(dim=1)
+            pred_ind = torch.repeat_interleave(torch.arange(len(flat_size), device=self.device), flat_size)
 
-        size_loss = (torch.abs(pred_size - gt_size) * self.set_generators[t].max_pair_loss).mean()
-        pred_ind = torch.repeat_interleave(torch.arange(len(used_size)), used_size)
-        set_loss = self.set_generators[t].calc_loss(pred_tensor, gt_tensor, pred_ind, gt_ind)
+            pred_hits, set_loss = self.set_generators[t - 1](z, gt, pred_ind, gt_ind, used_size, initial_pred)
+        else:
+            pred_hits, set_loss = torch.tensor([]), torch.tensor(0.0, device=self.device)
 
-        print(f"t= {t}: Size loss: {size_loss.item()}, Set loss: {set_loss.item()}")
+        return pred_size, pred_hits, size_loss, set_loss
 
-        return size_loss * size_loss_ratio + set_loss * (1 - size_loss_ratio)
-
-    def generate(self, x: Tensor, x_ind: Tensor, t: int) -> Tensor:
+    def generate(
+        self, x: Tensor, x_ind: Tensor, t: int, initial_pred: Tensor = torch.tensor([]), batch_size: int = 0
+    ) -> tuple[Tensor, Tensor]:
         """
         Generate the hit set at time t+1 given the hit set at time t.
 
         :param Tensor x: Input hit tensor. Shape `[num_hits, hit_dim]`
         :param Tensor x_ind: Input hit batch index tensor. Shape `[num_hits]`
         :param int t: Time step to generate the hit set for.
-        :return: Generated hit set tensor. Shape `[num_hits_pred, hit_dim]`
+        :param Tensor initial_pred: Initial prediction for the hit set at time t+1.
+            Shape `[num_hits_next, hit_dim]` or empty tensor if no initial prediction is available.
+        :param int batch_size: Batch size to use for the set generation. If 0, try to determine the batch size
+            from `x_ind`.
+        :return tuple[Tensor, Tensor]: Tuple containing the generated hit set size and the generated hit set.
+            If self.set_generators[t - 1] is None, the hit set is an empty tensor.
         """
 
-        x = self.encoders[t](x, x_ind)
-        size = self.size_generators[t].generate(x, x_ind)
-        return self.set_generators[t].generate(size.round().int(), x, x_ind)
+        z = self.encoders[t - 1](x, x_ind, batch_size)
+        size = self.size_generators[t - 1].generate(z)
+        hits = (
+            self.set_generators[t - 1].generate(z, size.round().int().clamp(min=0), initial_pred)
+            if self.set_generators[t - 1] is not None
+            else torch.tensor([], device=self.device)
+        )
+        return size, hits

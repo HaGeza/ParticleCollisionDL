@@ -2,14 +2,15 @@ from torch import Tensor
 import torch
 
 from src.Util import CoordinateSystemEnum
+from src.Util.CoordinateSystemFuncs import convert_from_cylindrical
 from .IPlacementStrategy import IPlacementStrategy
 
 
-class SqueezedSinusoidStrategy(IPlacementStrategy):
+class SinusoidStrategy(IPlacementStrategy):
     """
-    Places points using sinusoids, and squeezes them towards the outer radius using another sinusoid.
-    Points are placed at regular intervals around the z axis, with the radius and z position calculated
-    using sinusoids.
+    Places points using sinusoids. Points are placed at regular intervals around the z axis,
+    with the radius and z position calculated using sinusoids. Additionally, some Gaussian
+    noise is used to spread out the hits more.
     """
 
     def __init__(self, step_size_multiplier: float = 1567.321):
@@ -54,16 +55,10 @@ class SqueezedSinusoidStrategy(IPlacementStrategy):
                 frequencies[start:end] = end - start + 1
                 start = end
 
-        widths = (torch.sin(angles * frequencies) + 1) / 2
+        widths = (torch.sin((angles + angles % 2 - 1) * frequencies) + 1) / 2
         widths = widths * (rings[indices, 3] - rings[indices, 2]) + rings[indices, 2]
 
-        radii = (torch.cos(angles * frequencies) + 1) / 2
-        squeezes = (torch.sin((angles * frequencies) * 2) + 1) / 2
-        radii = (radii * squeezes + (1 - squeezes)) * (rings[indices, 1] - rings[indices, 0]) + rings[indices, 0]
+        radii = (torch.cos((angles + angles % 2 - 1) * frequencies) + 1) / 2
+        radii = radii * (rings[indices, 1] - rings[indices, 0]) + rings[indices, 0]
 
-        if coordinate_system == CoordinateSystemEnum.CARTESIAN:
-            return torch.stack([radii * torch.cos(angles), radii * torch.sin(angles), widths], dim=1)
-        elif coordinate_system == CoordinateSystemEnum.CYLINDRICAL:
-            return torch.stack([radii, angles, widths], dim=1)
-        else:
-            raise ValueError(f"Unknown coordinate system: {coordinate_system}")
+        return convert_from_cylindrical(torch.stack((radii, angles, widths), dim=1), coordinate_system)
