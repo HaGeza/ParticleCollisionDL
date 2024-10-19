@@ -1,13 +1,5 @@
-import csv
-from datetime import datetime
-import json
-import os
-import random
-import re
-import string
 from tqdm import tqdm, trange
 
-import numpy as np
 from scipy.spatial.distance import directed_hausdorff
 import torch
 from torch import Tensor
@@ -31,6 +23,7 @@ class Trainer:
         scheduler: lr_scheduler._LRScheduler,
         data_loader: IDataLoader,
         run_io: TrainingRunIO,
+        start_epoch: int = 0,
         epochs: int = 100,
         size_loss_weight: float = 0.01,
         device: str = "cpu",
@@ -41,6 +34,7 @@ class Trainer:
         :param lr_scheduler._LRScheduler scheduler: The learning rate scheduler to use
         :param IDataLoader data_loader: The data loader to use
         :param TrainingRunIO run_io: The run IO to use for logging and saving models
+        :param int start_epoch: The epoch to start training from
         :param int epochs: The number of epochs to train for
         :param float size_loss_weight: The weight to give to the size loss
         :param str device: The device to use
@@ -52,6 +46,7 @@ class Trainer:
         self.scheduler = scheduler
         self.data_loader = data_loader
         self.run_io = run_io
+        self.start_epoch = start_epoch
         self.epochs = epochs
         self.size_loss_weight = size_loss_weight
         self.device = device
@@ -136,6 +131,7 @@ class Trainer:
                 in_tensor = pred_tensor
                 in_batch_index = pred_batch_index
 
+        num_entries = max(num_entries, 1)
         return [hd / num_entries for hd in hds], [mse / num_entries for mse in mses]
 
     def train_and_eval(self):
@@ -150,7 +146,7 @@ class Trainer:
         min_loss = float("inf")
         self.model.train()
 
-        for epoch in trange(self.epochs):
+        for epoch in trange(self.start_epoch, self.epochs):
             loss_mean = 0
             num_entries = 0
 
@@ -170,7 +166,7 @@ class Trainer:
 
                     self.optimizer.zero_grad()
 
-                    pred_size, pred_tensor, size_loss, set_loss = self.model(
+                    pred_size, _pred_tensor, size_loss, set_loss = self.model(
                         in_tensor, gt_tensor, in_batch_index, gt_batch_index, gt_size, t, initial_pred
                     )
 
@@ -184,7 +180,7 @@ class Trainer:
                     loss_mean += loss.item()
                     num_entries += gt_size.size(0)
 
-                    if not self.run_io.no_train_log:
+                    if not self.run_io.no_log:
                         self.run_io.append_to_training_log(
                             epoch, t, event_ids, size_loss, set_loss, loss, pred_size, gt_size
                         )
@@ -200,9 +196,11 @@ class Trainer:
                 min_loss = loss_mean
                 save_min_loss_model = True
 
-            self.run_io.save_checkpoint(epoch, self.model, self.optimizer, self.scheduler, save_min_loss_model)
+            self.run_io.save_checkpoint(
+                epoch + 1, self.model, self.optimizer, self.scheduler, self.size_loss_weight, save_min_loss_model
+            )
 
-            if not self.run_io.no_eval_log:
+            if not self.run_io.no_log:
                 self.model.eval()
                 with torch.no_grad():
                     hd_train, mse_train = self.evaluate(self.data_loader, self.data_loader.train_events)

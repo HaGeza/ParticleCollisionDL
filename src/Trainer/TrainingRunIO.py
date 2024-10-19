@@ -12,6 +12,7 @@ from torch import Tensor
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import _LRScheduler
 
+from src.Data import IDataLoader
 from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel
 from src.Util.Paths import RUNS_DIR
 
@@ -31,31 +32,32 @@ class TrainingRunIO:
     MODEL_SECTION = "model"
 
     DATE_FIELD = "date"
+    NUM_EPOCHS_FIELD = "epochs"
+    MAX_NUM_SIZE_PREDS_FIELD = "max_num_size_preds"
 
     MODEL_FIELD = "model"
     OPTIMIZER_FIELD = "optimizer"
     SCHEDULER_FIELD = "scheduler"
     EPOCH_FIELD = "epoch"
+    SIZE_LOSS_WEIGHT_FIELD = "size_loss_weight"
+    DATA_LOADER_NAME = "data_loader"
 
     def __init__(
         self,
         model_id: str | None = None,
-        no_train_log: bool = False,
-        no_eval_log: bool = False,
+        no_log: bool = False,
         runs_dir: str = RUNS_DIR,
     ):
         """
         :param str model_id: The id of the model. If `None` or empty string, a random id will be generated.
-        :param bool no_train_log: Whether to not create a training log
-        :param bool no_eval_log: Whether to not create an evaluation log
+        :param bool no_log: Whether to not create a training log
         :param str runs_dir: The directory to save the results in
         """
         MODEL_KEY_LENGTH = 8
 
         self.runs_dir = runs_dir
         self.model_id = model_id
-        self.no_train_log = no_train_log
-        self.no_eval_log = no_eval_log
+        self.no_log = no_log
 
         if not os.path.exists(runs_dir):
             existing_runs = []
@@ -93,14 +95,18 @@ class TrainingRunIO:
 
             self.resume_from_checkpoint = True
 
+        self.max_num_size_preds = None
         self.dir = os.path.join(runs_dir, self.model_id)
+        if not no_log:
+            self.train_log = os.path.join(self.dir, self.TRAIN_LOG_FILE)
+            self.eval_log = os.path.join(self.dir, self.EVAL_LOG_FILE)
 
     def setup(
         self,
         model: HitSetGenerativeModel,
         optimizer: Optimizer,
         scheduler: _LRScheduler,
-        batch_size: int,
+        data_loader: IDataLoader,
         epochs: int,
         size_loss_weight: float,
     ):
@@ -115,33 +121,15 @@ class TrainingRunIO:
         :param float size_loss_weight: The weight to give to the size loss
         """
 
-        B = batch_size
+        B = data_loader.get_batch_size()
         T = model.time_step.get_num_time_steps()
 
         # Set up directories
         os.makedirs(self.dir, exist_ok=True)
 
-        # Set up info file
-        info_file = os.path.join(self.dir, TrainingRunIO.INFO_FILE)
-        with open(info_file, "w") as f:
-            model_info = model.information
-            training_info = {
-                "model_name": self.model_id,
-                "epochs": epochs,
-                "batch_size": B,
-                "device": str(model.device),
-                "size_loss_weight": size_loss_weight,
-                "optimizer_type": optimizer.__class__.__name__,
-                "scheduler_type": scheduler.__class__.__name__,
-                "learning_rate": optimizer.param_groups[0]["lr"],
-                self.DATE_FIELD: datetime.today().strftime("%Y:%m:%d_%H:%M:%S"),
-            }
-            json.dump({"model": model_info, "training": training_info}, f, indent=4)
-
         # Create log files
-        if not self.no_train_log:
+        if not self.no_log:
             # Create log of training progress
-            self.train_log = os.path.join(self.dir, self.TRAIN_LOG_FILE)
             with open(self.train_log, "w") as f:
                 row = ["epoch", "t"]
                 row += [f"event_{i}" for i in range(B)]
@@ -150,22 +138,42 @@ class TrainingRunIO:
                 if not model.use_shell_part_sizes:
                     row += [f"pred_size_{i}" for i in range(B)]
                     row += [f"gt_size_{i}" for i in range(B)]
-                    self.num_size_preds = B
+                    self.max_num_size_preds = B
                 else:
                     max_num_parts = np.max([model.time_step.get_num_shell_parts(t) for t in range(1, T)])
                     row += [f"pred_size_{i}_{j}" for i in range(B) for j in range(max_num_parts)]
                     row += [f"gt_size_{i}_{j}" for i in range(B) for j in range(max_num_parts)]
-                    self.num_size_preds = B * max_num_parts
+                    self.max_num_size_preds = B * max_num_parts.item()
                 csv.writer(f).writerow(row)
 
-        if not self.no_eval_log:
             # Create log of evaluation metrics
-            self.eval_log = os.path.join(self.dir, self.EVAL_LOG_FILE)
             with open(self.eval_log, "w") as f:
                 row = ["epoch", "loss"] + [
                     f"{m}_{s}_{t}" for t in range(1, T) for m in ["mse", "hd"] for s in ["train", "val"]
                 ]
                 csv.writer(f).writerow(row)
+
+        # Set up info file
+        info_file = os.path.join(self.dir, TrainingRunIO.INFO_FILE)
+        with open(info_file, "w") as f:
+            model_info = model.information
+            training_info = {
+                "model_name": self.model_id,
+                self.NUM_EPOCHS_FIELD: epochs,
+                "batch_size": B,
+                "device": str(model.device),
+                "size_loss_weight": size_loss_weight,
+                "optimizer_type": optimizer.__class__.__name__,
+                "scheduler_type": scheduler.__class__.__name__,
+                "start_lr": optimizer.param_groups[0]["lr"],
+                self.MAX_NUM_SIZE_PREDS_FIELD: self.max_num_size_preds,
+                self.DATE_FIELD: datetime.today().strftime("%Y:%m:%d_%H:%M:%S"),
+            }
+            json.dump({"model": model_info, "training": training_info}, f, indent=4)
+
+        # Save data loader
+        torch.save(data_loader, os.path.join(self.dir, f"{self.DATA_LOADER_NAME}.pth"))
+        self.save_checkpoint(0, model, optimizer, scheduler, size_loss_weight, True)
 
     def append_to_training_log(
         self,
@@ -191,16 +199,27 @@ class TrainingRunIO:
         :param Tensor gt_size: The ground truth sizes
         """
 
+        if self.max_num_size_preds is None:
+            self.max_num_size_preds = self.get_max_num_size_preds()
+
         with open(self.train_log, "a") as f:
             row = [epoch, t]
             row += event_ids
             row += [size_loss.item(), set_loss.item(), loss.item()]
             pred_size_flat = pred_size.view(-1).tolist()
-            padding = [""] * (self.num_size_preds - len(pred_size_flat))
+            padding = [""] * (self.max_num_size_preds - len(pred_size_flat))
             row += pred_size_flat + padding + gt_size.view(-1).tolist()
             csv.writer(f).writerow(row)
 
-    def append_to_evaluation_log(self, epoch, loss_mean, mse_train, hd_train, mse_val, hd_val):
+    def append_to_evaluation_log(
+        self,
+        epoch: int,
+        loss_mean: float,
+        mse_train: list[float],
+        hd_train: list[float],
+        mse_val: list[float],
+        hd_val: list[float],
+    ):
         """
         Append a new row to the evaluation log
 
@@ -218,7 +237,15 @@ class TrainingRunIO:
                 row += [mse_train[t], mse_val[t], hd_train[t], hd_val[t]]
             csv.writer(f).writerow(row)
 
-    def save_checkpoint(self, epoch, model, optimizer, scheduler, save_min_loss_model):
+    def save_checkpoint(
+        self,
+        epoch: int,
+        model: HitSetGenerativeModel,
+        optimizer: Optimizer,
+        scheduler: _LRScheduler,
+        size_loss_weight: float,
+        save_min_loss_model: bool,
+    ):
         """
         Save the model, optimizer and scheduler to a checkpoint file
 
@@ -226,17 +253,50 @@ class TrainingRunIO:
         :param HitSetGenerativeModel model: The model to save
         :param Optimizer optimizer: The optimizer to save
         :param _LRScheduler scheduler: The scheduler to save
+        :param float size_loss_weight: The weight to give to the size loss
         :param bool save_min_loss_model: Whether to save the model twice (once for being
             the latest model, once for being the model with the lowest loss)
         """
 
         checkpoint = {
-            self.MODEL_FIELD: model.state_dict(),
-            self.OPTIMIZER_FIELD: optimizer.state_dict(),
-            self.SCHEDULER_FIELD: scheduler.state_dict(),
+            self.MODEL_FIELD: model,
+            self.OPTIMIZER_FIELD: optimizer,
+            self.SCHEDULER_FIELD: scheduler,
             self.EPOCH_FIELD: epoch,
+            self.SIZE_LOSS_WEIGHT_FIELD: size_loss_weight,
         }
 
         torch.save(checkpoint, os.path.join(self.dir, f"{self.LATEST_NAME}.pth"))
         if save_min_loss_model:
             torch.save(checkpoint, os.path.join(self.dir, f"{self.MIN_LOSS_NAME}.pth"))
+
+    def load_checkpoint(self, load_min_loss: bool = False) -> dict:
+        """
+        Load the latest checkpoint
+
+        :param bool load_min_loss: Whether to load the checkpoint with the lowest loss.
+            If `False` the latest checkpoint is loaded instead.
+        :return dict: The checkpoint dictionary containing the model, optimizer, scheduler,
+            epoch, size loss weight and data loader
+        """
+
+        checkpoint_name = self.MIN_LOSS_NAME if load_min_loss else self.LATEST_NAME
+        checkpoint = torch.load(os.path.join(self.dir, f"{checkpoint_name}.pth"), weights_only=False)
+        data_loader = torch.load(os.path.join(self.dir, f"{self.DATA_LOADER_NAME}.pth"), weights_only=False)
+        checkpoint[self.DATA_LOADER_NAME] = data_loader
+
+        return checkpoint
+
+    def get_total_num_epochs(self) -> int:
+        """
+        :return int: The number of epochs in the training run, based on the info file
+        """
+        info = json.load(open(os.path.join(self.dir, self.INFO_FILE)))
+        return info[self.TRAINING_SECTION][self.NUM_EPOCHS_FIELD]
+
+    def get_max_num_size_preds(self) -> int:
+        """
+        :return int: The number of size predictions in the training run, based on the info file
+        """
+        info = json.load(open(os.path.join(self.dir, self.INFO_FILE)))
+        return info[self.TRAINING_SECTION][self.MAX_NUM_SIZE_PREDS_FIELD]

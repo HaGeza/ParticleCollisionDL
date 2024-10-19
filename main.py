@@ -22,7 +22,7 @@ from src.Modules.HitSetEncoder import HitSetEncoderEnum
 from src.Modules.HitSetSizeGenerator import HitSetSizeGeneratorEnum
 from src.Modules.HitSetGenerator import HitSetGeneratorEnum
 from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel
-from src.Util.Paths import DATA_DIR, RUNS_DIR, get_precomputed_data_path
+from src.Util.Paths import DATA_DIR, get_precomputed_data_path
 
 
 def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace) -> Trainer:
@@ -106,13 +106,35 @@ def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace
     scheduler = CyclicLR(optimizer, base_lr=min_lr, max_lr=lr, step_size_up=100)
 
     # Set up runs IO
-    run_io.setup(model, optimizer, scheduler, batch_size, epochs, size_loss_weight)
+    run_io.setup(model, optimizer, scheduler, data_loader, epochs, size_loss_weight)
 
-    return Trainer(model, optimizer, scheduler, data_loader, run_io, epochs, size_loss_weight, device)
+    return Trainer(model, optimizer, scheduler, data_loader, run_io, 0, epochs, size_loss_weight, device)
 
 
-def initialize_trainer_from_checkpoint(checkpoint: str) -> Trainer:
-    pass
+def initialize_trainer_from_checkpoint(checkpoint: str, load_min_loss: bool = False) -> Trainer:
+    """
+    Initialize a trainer from a checkpoint.
+
+    :param str checkpoint: Checkpoint ID
+    :param bool load_min_loss: Load the model with the minimum loss
+    :return Trainer: Trainer object
+    """
+
+    checkpoint = run_io.load_checkpoint(load_min_loss)
+
+    model = checkpoint[run_io.MODEL_FIELD]
+
+    return Trainer(
+        model,
+        checkpoint[run_io.OPTIMIZER_FIELD],
+        checkpoint[run_io.SCHEDULER_FIELD],
+        checkpoint[run_io.DATA_LOADER_NAME],
+        run_io,
+        checkpoint[run_io.EPOCH_FIELD],
+        run_io.get_total_num_epochs(),
+        checkpoint[run_io.SIZE_LOSS_WEIGHT_FIELD],
+        model.device,
+    )
 
 
 if __name__ == "__main__":
