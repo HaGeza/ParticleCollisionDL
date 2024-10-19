@@ -1,6 +1,8 @@
 import argparse
 import os
 import random
+import re
+import string
 
 import numpy as np
 import torch
@@ -14,18 +16,117 @@ from src.TimeStep import TimeStepEnum
 from src.TimeStep.ForAdjusting import PrecomputedTimeStep
 from src.TimeStep.ForAdjusting.VolumeLayer import VLTimeStep
 from src.Pairing import PairingStrategyEnum
-from src.Trainer import Trainer
+from src.Trainer import Trainer, TrainingRunIO
 from src.Data import CollisionEventLoader, PrecomputedDataLoader
 from src.Modules.HitSetEncoder import HitSetEncoderEnum
 from src.Modules.HitSetSizeGenerator import HitSetSizeGeneratorEnum
 from src.Modules.HitSetGenerator import HitSetGeneratorEnum
 from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel
-from src.Util.Paths import DATA_DIR, MODELS_DIR, RESULTS_DIR, PRECOMPUTED_DATA_DIR, get_precomputed_data_path
+from src.Util.Paths import DATA_DIR, RUNS_DIR, get_precomputed_data_path
+
+
+def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace) -> Trainer:
+    """
+    Initialize a trainer from the arguments.
+
+    :param TrainingRunIO run_io: Training run IO object
+    :param argparse.Namespace args: Arguments
+    :return Trainer: Trainer object
+    """
+    # Convert strings to enums
+    coordinate_system = CoordinateSystemEnum(args.coordinate_system)
+    time_step_type = TimeStepEnum(args.time_step)
+    pairing_strategy_type = PairingStrategyEnum(args.pairing_strategy)
+    placement_strategy_type = PlacementStrategyEnum(args.placement_strategy)
+    encoder = HitSetEncoderEnum(args.encoder)
+    size_generator = HitSetSizeGeneratorEnum(args.size_generator)
+    set_generator = HitSetGeneratorEnum(args.set_generator)
+
+    # Convert other arguments
+    epochs = int(args.epochs)
+    batch_size = int(args.batch_size)
+    size_loss_weight = float(args.size_loss_weight)
+    lr = float(args.lr)
+    min_lr = lr if args.min_lr is None else float(args.min_lr)
+    use_shell_part_sizes = not args.no_shell_part_sizes
+    no_precomputed = args.no_precomputed
+    dataset = args.dataset
+
+    # Initialize time step
+    if time_step_type == TimeStepEnum.VOLUME_LAYER:
+        if placement_strategy_type == PlacementStrategyEnum.SINUSOIDAL:
+            placement_strategy = SinusoidStrategy()
+        else:  # if placement_strategy== PlacementStrategyEnum.EQUIDISTANT:
+            placement_strategy = EquidistantStrategy()
+
+        time_step = VLTimeStep(placement_strategy=placement_strategy, use_shell_part_sizes=use_shell_part_sizes)
+    else:
+        raise NotImplementedError(f"Time step {time_step_type} is not implemented")
+
+    if no_precomputed:
+        # Initialize data loader
+        data_loader = CollisionEventLoader(
+            os.path.join(root_dir, DATA_DIR, dataset),
+            time_step,
+            batch_size,
+            coordinate_system=coordinate_system,
+            device=device,
+        )
+    else:
+        # Initialize data loader
+        data_path = get_precomputed_data_path(
+            root_dir,
+            dataset,
+            time_step_type,
+            coordinate_system,
+            placement_strategy_type,
+            pairing_strategy_type,
+            use_shell_part_sizes,
+        )
+        data_loader = PrecomputedDataLoader(data_path, batch_size=batch_size, device=device)
+        # Initialize time step
+        time_step = PrecomputedTimeStep(data_loader, time_step)
+
+    # Initialize model
+    model = HitSetGenerativeModel(
+        encoder,
+        size_generator,
+        set_generator,
+        time_step,
+        pairing_strategy_type,
+        coordinate_system,
+        use_shell_part_sizes,
+        device=device,
+    )
+
+    # Initialize optimizer
+    optimizer = Adam(model.parameters(), lr=lr)
+
+    # Initialize scheduler
+    scheduler = CyclicLR(optimizer, base_lr=min_lr, max_lr=lr, step_size_up=100)
+
+    # Set up runs IO
+    run_io.setup(model, optimizer, scheduler, batch_size, epochs, size_loss_weight)
+
+    return Trainer(model, optimizer, scheduler, data_loader, run_io, epochs, size_loss_weight, device)
+
+
+def initialize_trainer_from_checkpoint(checkpoint: str) -> Trainer:
+    pass
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
 
+    ap.add_argument(
+        "-c",
+        "--checkpoint",
+        default=None,
+        help="Model ID of the checkpoint to resume training for. If `None` a new model with a random "
+        f"ID is created. If '{TrainingRunIO.LATEST_NAME}' then the model with the newest creation "
+        f"date (based on {TrainingRunIO.INFO_FILE}) is loaded. Otherwise, the model with the specified "
+        "ID is loaded. In these two latter cases, the rest of the arguments are ignored.",
+    )
     ap.add_argument("-d", "--dataset", default="train_sample", help=f"path to input dataset, relative to {DATA_DIR}")
     ap.add_argument(
         "--no_precomputed",
@@ -36,15 +137,15 @@ if __name__ == "__main__":
     ap.add_argument("-e", "--epochs", default=100, help="number of epochs to train the model")
     ap.add_argument("-b", "--batch_size", default=2, help="batch size for training")
     ap.add_argument("-l", "--lr", "--learning_rate", default=1e-3, help="learning rate for training")
-    ap.add_argument("-r", "--random_seed", default=42, help="random seed")
     ap.add_argument(
         "--min_lr",
         "--min_learning_rate",
         default=None,
         help="minimum learning rate for training; if not specified, equal to lr",
     )
+    ap.add_argument("--size_loss_weight", default=0.01, help="weight for the size loss")
+    ap.add_argument("-r", "--random_seed", default=42, help="random seed")
     ap.add_argument(
-        "-c",
         "--coordinate_system",
         default=CoordinateSystemEnum.CYLINDRICAL.value,
         help="coordinate system",
@@ -95,14 +196,6 @@ if __name__ == "__main__":
     )
 
     args = ap.parse_args()
-    # Convert strings to enums
-    args.coordinate_system = CoordinateSystemEnum(args.coordinate_system)
-    args.time_step = TimeStepEnum(args.time_step)
-    args.pairing_strategy = PairingStrategyEnum(args.pairing_strategy)
-    args.placement_strategy = PlacementStrategyEnum(args.placement_strategy)
-    args.encoder = HitSetEncoderEnum(args.encoder)
-    args.size_generator = HitSetSizeGeneratorEnum(args.size_generator)
-    args.set_generator = HitSetGeneratorEnum(args.set_generator)
 
     # Determine root directory
     root_dir = os.path.dirname(os.path.abspath(__file__))
@@ -121,63 +214,12 @@ if __name__ == "__main__":
     # Set multiprocessing start method
     set_start_method("spawn", force=True)
 
-    use_shell_part_sizes = not args.no_shell_part_sizes
-
-    # Initialize time step
-    if args.time_step == TimeStepEnum.VOLUME_LAYER:
-        if args.placement_strategy == PlacementStrategyEnum.SINUSOIDAL:
-            placement_strategy = SinusoidStrategy()
-        else:  # if args.placement_strategy== PlacementStrategyEnum.EQUIDISTANT:
-            placement_strategy = EquidistantStrategy()
-
-        time_step = VLTimeStep(placement_strategy=placement_strategy, use_shell_part_sizes=use_shell_part_sizes)
+    # Initialize run IO and trainer
+    run_io = TrainingRunIO(args.checkpoint)
+    if not run_io.resume_from_checkpoint:
+        trainer = initialize_trainer_from_args(run_io, args)
     else:
-        raise NotImplementedError(f"Time step {args.time_step} is not implemented")
+        trainer = initialize_trainer_from_checkpoint(args.checkpoint)
 
-    if args.no_precomputed:
-        # Initialize data loader
-        data_loader = CollisionEventLoader(
-            os.path.join(root_dir, DATA_DIR, args.dataset),
-            time_step,
-            int(args.batch_size),
-            coordinate_system=args.coordinate_system,
-            device=device,
-        )
-    else:
-        # Initialize data loader
-        data_path = get_precomputed_data_path(
-            root_dir,
-            args.dataset,
-            args.time_step,
-            args.coordinate_system,
-            args.placement_strategy,
-            args.pairing_strategy,
-            use_shell_part_sizes,
-        )
-        data_loader = PrecomputedDataLoader(data_path, batch_size=int(args.batch_size), device=device)
-        # Initialize time step
-        time_step = PrecomputedTimeStep(data_loader, time_step)
-
-    # Initialize model
-    model = HitSetGenerativeModel(
-        args.encoder,
-        args.size_generator,
-        args.set_generator,
-        time_step,
-        args.pairing_strategy,
-        args.coordinate_system,
-        use_shell_part_sizes,
-        device=device,
-    )
-
-    # Initialize optimizer
-    lr = float(args.lr)
-    optimizer = Adam(model.parameters(), lr=lr)
-
-    # Initialize scheduler
-    min_lr = lr if args.min_lr is None else float(args.min_lr)
-    scheduler = CyclicLR(optimizer, base_lr=min_lr, max_lr=lr, step_size_up=100)
-
-    # Train model
-    trainer = Trainer(model, optimizer, scheduler, device, models_path=MODELS_DIR, results_path=RESULTS_DIR)
-    trainer.train_and_eval(int(args.epochs), data_loader)
+    # train and evaluate model
+    trainer.train_and_eval()
