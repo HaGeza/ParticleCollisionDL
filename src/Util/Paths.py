@@ -7,8 +7,7 @@ from src.Util import CoordinateSystemEnum
 
 DATA_DIR = "data"
 PRECOMPUTED_DATA_DIR = os.path.join(DATA_DIR, "precomputed")
-MODELS_DIR = "models"
-RESULTS_DIR = "results"
+RUNS_DIR = "runs"
 
 
 def get_precomputed_data_path(
