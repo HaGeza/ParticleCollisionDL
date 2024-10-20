@@ -1,4 +1,3 @@
-import time
 from torch import Tensor, nn
 import torch
 
@@ -116,14 +115,14 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         pred_diffs = self.decoder(torch.cat([zs, latents[0]], dim=1))
 
         # calculate ELBO
-        RE = (log_standard_normal(diffs - pred_diffs)).sum(dim=1)
+        re_term = (log_standard_normal(diffs - pred_diffs)).sum(dim=1)
 
-        KL = (self._log_posterior(latents[-1], -1) - log_standard_normal(latents[-1])).sum(dim=1)
+        kl_term = (self._log_posterior(latents[-1], -1) - log_standard_normal(latents[-1])).sum(dim=1)
         for i in range(self.num_steps - 1, -1, -1):
-            KL_i = self._log_posterior(latents[i], i) - log_normal_diag(latents[i], mus[i], log_vars[i])
-            KL = KL + KL_i.sum(dim=1)
+            kl_term_i = self._log_posterior(latents[i], i) - log_normal_diag(latents[i], mus[i], log_vars[i])
+            kl_term = kl_term + kl_term_i.sum(dim=1)
 
-        loss = -(RE - KL).mean()
+        loss = -(re_term - kl_term).mean()
 
         return initial_pred[pairs[:, 0]] + pred_diffs, loss
 

@@ -4,7 +4,6 @@ from torch import Tensor
 from sklearn.neighbors import KDTree
 
 from src.Pairing import GreedyStrategy
-from src.Util import CoordinateSystemEnum
 from .IPairingStrategy import IPairingStrategy
 
 

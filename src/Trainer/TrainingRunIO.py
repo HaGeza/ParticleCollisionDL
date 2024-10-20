@@ -233,8 +233,8 @@ class TrainingRunIO:
 
         with open(self.eval_log, "a") as f:
             row = [epoch, loss_mean]
-            for t in range(len(mse_train)):
-                row += [mse_train[t], mse_val[t], hd_train[t], hd_val[t]]
+            for metric_values in zip(mse_train, hd_train, mse_val, hd_val):
+                row += list(metric_values)
             csv.writer(f).writerow(row)
 
     def save_checkpoint(
@@ -291,12 +291,14 @@ class TrainingRunIO:
         """
         :return int: The number of epochs in the training run, based on the info file
         """
-        info = json.load(open(os.path.join(self.dir, self.INFO_FILE)))
+        with open(os.path.join(self.dir, self.INFO_FILE)) as f:
+            info = json.load(f)
         return info[self.TRAINING_SECTION][self.NUM_EPOCHS_FIELD]
 
     def get_max_num_size_preds(self) -> int:
         """
         :return int: The number of size predictions in the training run, based on the info file
         """
-        info = json.load(open(os.path.join(self.dir, self.INFO_FILE)))
+        with open(os.path.join(self.dir, self.INFO_FILE)) as f:
+            info = json.load(f)
         return info[self.TRAINING_SECTION][self.MAX_NUM_SIZE_PREDS_FIELD]

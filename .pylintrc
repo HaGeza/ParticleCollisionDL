@@ -1,0 +1,57 @@
+[MASTER]
+ignore=venv
+ignore-patterns=test_.*\.py
+
+[MESSAGES CONTROL]
+disable=
+    C0114,  # Missing module docstring
+    C0115,  # Missing class docstring
+    C0116,  # Missing function or method docstring
+    R0801,  # Similar lines in files
+    R0903,  # Too few public methods
+    R0902,  # Too many instance attributes
+    R0913,  # Too many arguments
+    R0914,  # Too many local variables
+    R0915,  # Too many statements
+    R0917,  # Too many positional arguments
+    W0511,  # TODO found
+    W0621,  # Redefining name from outer scope
+    W1514,  # Using open without specifying an encoding
+    W0102,  # Dangerous default value as argument
+
+[REPORTS]
+output-format=colorized
+
+[FORMAT]
+# Maximum number of characters on a single line.
+max-line-length=119
+
+[BASIC]
+# Variable names should be in lower or upper snake_case.
+variable-rgx=[a-z_][a-z0-9_]*$|[A-Z_][A-Z0-9_]*$
+
+# Function names should be in lower snake_case.
+function-rgx=[a-z_][a-z0-9_]*$
+
+# Module and class names should be in CamelCase.
+module-rgx=(([a-z][a-z0-9]*)|([A-Z][a-zA-Z0-9]+))$
+class-rgx=[A-Z_][a-zA-Z0-9]+$
+
+# Argument names should be in lower snake_case.
+argument-rgx=[a-z_][a-z0-9_]*$
+
+# Attribute names should be in lower snake_case.
+attr-rgx=[a-z_][a-z0-9_]*$
+
+# Constant names should be in upper snake_case.
+const-rgx=(([A-Z_][A-Z0-9_]*)|(__.*__))$
+
+[DESIGN]
+
+[EXCEPTIONS]
+# Exceptions that will emit a warning when caught.
+overgeneral-exceptions=builtins.BaseException,builtins.Exception
+
+[VARIABLES]
+# Errors should be thrown for potentially uninitialized variables.
+init-import=no

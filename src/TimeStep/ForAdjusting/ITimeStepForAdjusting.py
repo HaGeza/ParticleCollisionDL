@@ -10,7 +10,6 @@ class ITimeStepForAdjusting(ITimeStep):
         t: int,
         size: Tensor,
         coordinate_system: CoordinateSystemEnum,
-        normalize_hits: bool = True,
         device: str = "cpu",
     ) -> Tensor:
         """
@@ -19,7 +18,6 @@ class ITimeStepForAdjusting(ITimeStep):
         :param int t: The pseudo time step to place the hits for
         :param int size: The number of hits to place
         :param CoordinateSystemEnum coordinate_system: The coordinate system to use
-        :param bool normalize_hits: Whether to normalize the hits
         :param str device: The device to load the data on
         :return: The placed hits. Shape `[sum(size), hit_dim]`
         """

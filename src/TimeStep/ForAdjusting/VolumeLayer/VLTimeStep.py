@@ -1,12 +1,12 @@
+import torch
+from torch import Tensor
+from pandas import DataFrame, Series
+
 from src.TimeStep.ForAdjusting import ITimeStepForAdjusting
 from src.TimeStep.ForAdjusting.PlacementStrategy import EquidistantStrategy, IPlacementStrategy
 from src.Util import CoordinateSystemEnum
 from .VLRings import VL_TO_RING
 from .VLMaps import get_volume_layer_to_t, get_t_to_volume_layers
-
-import torch
-from torch import Tensor
-from pandas import DataFrame, Series
 
 
 class VLTimeStep(ITimeStepForAdjusting):
@@ -132,9 +132,9 @@ class VLTimeStep(ITimeStepForAdjusting):
 
         if coordinate_system == CoordinateSystemEnum.CARTESIAN:
             return hit_tensor / self.vl_scales[t]
-        else:  # coordinate_system == CoordinateSystemEnum.CYLINDRICAL
-            normalizer = torch.tensor([self.vl_scales[t], 1.0, self.vl_scales[t]], device=hit_tensor.device)
-            return hit_tensor / normalizer
+        # if coordinate_system == CoordinateSystemEnum.CYLINDRICAL
+        normalizer = torch.tensor([self.vl_scales[t], 1.0, self.vl_scales[t]], device=hit_tensor.device)
+        return hit_tensor / normalizer
 
     def get_num_shell_parts(self, t: int) -> int:
         """

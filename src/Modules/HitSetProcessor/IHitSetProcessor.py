@@ -14,11 +14,3 @@ class IHitSetProcessor(nn.Module):
         :param Tensor int: The hit set to process. Shape `[num_hits, hit_dim]`.
         """
         raise NotImplementedError
-
-    def get_output_dim(self) -> int:
-        """
-        Get the dimension of the output.
-
-        :return int: Dimension of the output.
-        """
-        raise NotImplementedError

@@ -40,7 +40,8 @@ class HitSetGenerativeModel(nn.Module):
         :param HitSetEncoderEnum encoder_type: Type of encoder to use.
         :param HitSetSizeGeneratorEnum size_generator_type: Type of size generator to use.
         :param HitSetGeneratorEnum set_generator_type: Type of set generator to use.
-        :param ITimeStep time_step: Time step object used to create the pseudo-time-step and to pass to the set generator.
+        :param ITimeStep time_step: Time step object used to create the pseudo-time-step
+            and to pass to the set generator.
         :param PairingStrategyEnum pairing_strategy_type: Pairing strategy to use for reconstruction loss.
         :param CoordinateSystemEnum coordinate_system: Coordinate system to use for input.
         :param bool use_shell_part_sizes: Whether to use shell part sizes for the loss calculation.

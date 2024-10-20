@@ -34,10 +34,10 @@ class EquidistantStrategy(IPlacementStrategy):
         z_ranges = rings[:, 3] - rings[:, 2]
         z_r_ratios = (z_ranges + self.z_to_r_normalizer) / (r_ranges + self.z_to_r_normalizer)
 
-        Rs = (r_ranges / (r_sums * z_r_ratios * PI**2)).unsqueeze(0) * ring_capacities
-        Zs = (z_ranges / (r_sums * z_r_ratios * PI**2)).unsqueeze(0) * ring_capacities
+        r_eq_rhss = (r_ranges / (r_sums * z_r_ratios * PI**2)).unsqueeze(0) * ring_capacities
+        z_eq_rhss = (z_ranges / (r_sums * z_r_ratios * PI**2)).unsqueeze(0) * ring_capacities
 
-        circles_on_r = ((Zs - Rs) / (z_r_ratios - 1)) ** (1 / 3)
+        circles_on_r = ((z_eq_rhss - r_eq_rhss) / (z_r_ratios - 1)) ** (1 / 3)
         disks_on_z = circles_on_r * z_r_ratios
 
         circles_on_r = circles_on_r.ceil().int()

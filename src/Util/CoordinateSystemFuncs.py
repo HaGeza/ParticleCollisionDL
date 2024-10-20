@@ -14,10 +14,9 @@ def convert_to_cartesian(x: Tensor, coordinate_system: CoordinateSystemEnum) -> 
 
     if coordinate_system == CoordinateSystemEnum.CARTESIAN:
         return x
-    elif coordinate_system == CoordinateSystemEnum.CYLINDRICAL:
+    if coordinate_system == CoordinateSystemEnum.CYLINDRICAL:
         return torch.stack([x[:, 0] * torch.cos(x[:, 1]), x[:, 0] * torch.sin(x[:, 1]), x[:, 2]], dim=1)
-    else:
-        raise ValueError(f"Unknown coordinate system: {coordinate_system}")
+    raise ValueError(f"Unknown coordinate system: {coordinate_system}")
 
 
 def convert_from_cylindrical(x: Tensor, coordinate_system: CoordinateSystemEnum) -> Tensor:
@@ -30,7 +29,6 @@ def convert_from_cylindrical(x: Tensor, coordinate_system: CoordinateSystemEnum)
 
     if coordinate_system == CoordinateSystemEnum.CARTESIAN:
         return torch.stack([x[:, 0] * torch.cos(x[:, 1]), x[:, 0] * torch.sin(x[:, 1]), x[:, 2]], dim=1)
-    elif coordinate_system == CoordinateSystemEnum.CYLINDRICAL:
+    if coordinate_system == CoordinateSystemEnum.CYLINDRICAL:
         return x
-    else:
-        raise ValueError(f"Unknown coordinate system: {coordinate_system}")
+    raise ValueError(f"Unknown coordinate system: {coordinate_system}")
