@@ -2,6 +2,7 @@ ipykernel==6.29.5
 ipympl==0.9.4
 kaggle==1.6.17
 pip-chill==1.0.3
+pylint==3.3.1
 scikit-learn==1.5.2
 seaborn==0.13.2
 torch==2.4.1

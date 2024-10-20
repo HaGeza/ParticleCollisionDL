@@ -8,9 +8,9 @@ import torch
 from torch import Tensor
 from torch.nn import functional as F
 
-from .IDataLoader import IDataLoader
 from src.TimeStep import ITimeStep
 from src.Util import CoordinateSystemEnum
+from .IDataLoader import IDataLoader
 
 
 class CollisionEventLoader(IDataLoader):
@@ -117,9 +117,9 @@ class CollisionEventLoader(IDataLoader):
             gt_size = gt_size.view(batch_size, num_parts)
 
             return gt_size.float().to(self.device), part_ids
-        else:
-            _, gt_size = torch.unique(gt_batch_index, return_counts=True)
-            return gt_size.float().to(self.device), torch.tensor([])
+
+        _, gt_size = torch.unique(gt_batch_index, return_counts=True)
+        return gt_size.float().to(self.device), torch.tensor([])
 
     def iter_events(self, events: list[str]) -> Iterator[tuple[list[Tensor], list[Tensor], list[str]]]:
         hits_tensor_list, batch_index_list = self._reset_batch()

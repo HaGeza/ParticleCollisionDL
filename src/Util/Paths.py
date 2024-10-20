@@ -34,5 +34,5 @@ def get_precomputed_data_path(
     out_name = (
         f"{dataset}-{time_step.value}-{coordinate_system.value}-{placement_strategy.value}-{pairing_strategy.value}"
     )
-    out_name += f"-parts" if use_shell_parts else ""
+    out_name += "-parts" if use_shell_parts else ""
     return os.path.join(root_dir, PRECOMPUTED_DATA_DIR, out_name)

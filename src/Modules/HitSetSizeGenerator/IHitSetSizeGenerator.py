@@ -18,7 +18,7 @@ class IHitSetSizeGenerator(nn.Module):
 
         raise NotImplementedError
 
-    def generate(z: Tensor) -> Tensor:
+    def generate(self, z: Tensor) -> Tensor:
         """
         Generate a size for the hit set.
 

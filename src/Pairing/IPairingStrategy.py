@@ -26,6 +26,7 @@ class IPairingStrategy:
 
         raise NotImplementedError
 
+    @staticmethod
     def _get_max_ind(gt_ind: Tensor, pred_ind: Tensor) -> int:
         """
         Get the maximum index from the ground truth and predicted indices.
@@ -157,6 +158,6 @@ class IPairingStrategy:
         diffs = torch.sum((pred_cart[pairs[:, 0]] - gt_cart[pairs[:, 1]]) ** 2, dim=1)
         if reduction == "mean":
             return diffs.mean() if len(diffs) > 0 else torch.tensor(0.0, device=pred.device)
-        elif reduction == "sum":
+        if reduction == "sum":
             return diffs.sum()
         return diffs

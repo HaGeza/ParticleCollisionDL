@@ -37,6 +37,3 @@ class GlobalPoolingEncoder(IHitSetEncoder):
                 out[i] = torch.zeros_like(out[i])
 
         return out
-
-    def get_encoding_dim(self) -> int:
-        return self.processor.get_output_dim()

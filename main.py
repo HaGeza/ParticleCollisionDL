@@ -1,8 +1,6 @@
 import argparse
 import os
 import random
-import re
-import string
 
 import numpy as np
 import torch
@@ -25,14 +23,20 @@ from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel
 from src.Util.Paths import DATA_DIR, get_precomputed_data_path
 
 
-def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace) -> Trainer:
+def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace, root_dir: str) -> Trainer:
     """
     Initialize a trainer from the arguments.
 
     :param TrainingRunIO run_io: Training run IO object
     :param argparse.Namespace args: Arguments
+    :param str root_dir: Root directory
     :return Trainer: Trainer object
     """
+    # Determine device: cuda > (mps >) cpu
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    )
+
     # Convert strings to enums
     coordinate_system = CoordinateSystemEnum(args.coordinate_system)
     time_step_type = TimeStepEnum(args.time_step)
@@ -111,10 +115,11 @@ def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace
     return Trainer(model, optimizer, scheduler, data_loader, run_io, 0, epochs, size_loss_weight, device)
 
 
-def initialize_trainer_from_checkpoint(checkpoint: str, load_min_loss: bool = False) -> Trainer:
+def initialize_trainer_from_checkpoint(run_io: TrainingRunIO, checkpoint: str, load_min_loss: bool = False) -> Trainer:
     """
     Initialize a trainer from a checkpoint.
 
+    :param TrainingRunIO run_io: Training run IO object
     :param str checkpoint: Checkpoint ID
     :param bool load_min_loss: Load the model with the minimum loss
     :return Trainer: Trainer object
@@ -222,11 +227,6 @@ if __name__ == "__main__":
     # Determine root directory
     root_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # Determine device: cuda > (mps >) cpu
-    device = torch.device(
-        "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-    )
-
     # Set random seeds
     seed = int(args.random_seed)
     random.seed(seed)
@@ -239,9 +239,9 @@ if __name__ == "__main__":
     # Initialize run IO and trainer
     run_io = TrainingRunIO(args.checkpoint)
     if not run_io.resume_from_checkpoint:
-        trainer = initialize_trainer_from_args(run_io, args)
+        trainer = initialize_trainer_from_args(run_io, args, root_dir)
     else:
-        trainer = initialize_trainer_from_checkpoint(args.checkpoint)
+        trainer = initialize_trainer_from_checkpoint(run_io, args.checkpoint)
 
     # train and evaluate model
     trainer.train_and_eval()

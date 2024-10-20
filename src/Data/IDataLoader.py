@@ -1,6 +1,5 @@
 from typing import Iterator
 from torch import Tensor
-import torch
 
 
 class IDataLoader:
