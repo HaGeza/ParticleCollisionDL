@@ -25,6 +25,7 @@ class PointNetProcessor(IHitSetProcessor):
         :param int hidden_dim: The dimension of the hidden layer.
         :param int output_dim: The dimension of the output. if `None`, set equal to `hidden_dim`.
         :param int num_layers: The number of layers in the encoder.
+        :param callable activation: The activation to apply
         :param str device: The device to run the encoder on.
         """
         super().__init__()
@@ -43,11 +44,12 @@ class PointNetProcessor(IHitSetProcessor):
             self.layers.append(nn.Linear(hidden_dim, hidden_dim, device=device))
         self.layers.append(nn.Linear(hidden_dim, self.output_dim, device=device))
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, x_ind: Tensor) -> Tensor:
         """
         Process a hit set.
 
         :param Tensor int: The hit set to process. Shape `[num_hits, hit_dim]`.
+        :param Tensor x_ind: The index of the hit set. Shape `[num_hits]`.
         """
 
         for layer in self.layers[:-1]:

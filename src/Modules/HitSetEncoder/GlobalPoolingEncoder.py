@@ -24,7 +24,7 @@ class GlobalPoolingEncoder(IHitSetEncoder):
         self.processor = processor
 
     def forward(self, x: Tensor, x_ind: Tensor, batch_size: int = 0) -> Tensor:
-        x = self.processor(x)
+        x = self.processor(x, x_ind)
 
         out_size = x_ind.max().item() + 1 if batch_size == 0 else batch_size
         out = torch.full((out_size, x.size(1)), -float("inf"), device=x.device)

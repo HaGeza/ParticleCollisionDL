@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from src.Modules.HitSetEncoder import HitSetEncoderEnum, GlobalPoolingEncoder
 from src.Modules.HitSetGenerator.DDPM import DDPMSetGenerator
 from src.Modules.HitSetGenerator.DDPM.BetaSchedules import CosineBetaSchedule
-from src.Modules.HitSetProcessor import PointNetProcessor
+from src.Modules.HitSetProcessor import LocalGNNProcessor, PointNetProcessor
 from src.Modules.HitSetSizeGenerator import GaussianSizeGenerator, HitSetSizeGeneratorEnum
 from src.Modules.HitSetGenerator import AdjustingSetGenerator, HitSetGeneratorEnum
 from src.Pairing import PairingStrategyEnum
@@ -77,6 +77,9 @@ class HitSetGenerativeModel(nn.Module):
         for t in range(time_step.get_num_time_steps() - 1):
             if encoder_type == HitSetEncoderEnum.POINT_NET:
                 processor = PointNetProcessor(device=device)
+                self.encoders.append(GlobalPoolingEncoder(processor, device=device))
+            elif encoder_type == HitSetEncoderEnum.GNN:
+                processor = LocalGNNProcessor(coordinate_system, k=5, device=device)
                 self.encoders.append(GlobalPoolingEncoder(processor, device=device))
 
             num_sizes = 1 if not use_shell_part_sizes else time_step.get_num_shell_parts(t + 1)

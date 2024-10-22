@@ -7,3 +7,4 @@ class HitSetEncoderEnum(Enum):
     """
 
     POINT_NET = "point_net"
+    GNN = "gnn"

@@ -108,11 +108,11 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         zs = torch.cat([z[i].repeat(num_pairs_per_batch[i], 1) for i in range(z.size(0))], dim=0)
 
         for i in range(self.num_steps - 1, -1, -1):
-            out = self.processors[i](torch.cat([zs, latents[i - 1]], dim=1))
+            out = self.processors[i](torch.cat([zs, latents[i - 1]], dim=1), pred_ind)
             mus[i], log_vars[i] = out[:, :input_dim], out[:, input_dim:]
 
         # predict final mu with final denoising network
-        pred_diffs = self.decoder(torch.cat([zs, latents[0]], dim=1))
+        pred_diffs = self.decoder(torch.cat([zs, latents[0]], dim=1), pred_ind)
 
         # calculate ELBO
         re_term = (log_standard_normal(diffs - pred_diffs)).sum(dim=1)
@@ -128,6 +128,7 @@ class DDPMSetGenerator(AdjustingSetGenerator):
 
     def generate(self, z: Tensor, size: Tensor, initial_pred: Tensor = torch.tensor([])) -> Tensor:
         hits_per_batch = size if size.dim() == 1 else size.sum(dim=1)
+        pred_ind = torch.repeat_interleave(torch.arange(size.size(0), device=self.device), hits_per_batch)
         initial_points = super().generate(z, size, initial_pred)
         input_dim = initial_points.size(1)
 
@@ -137,7 +138,7 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         # denoise movement distributions
         zs = torch.cat([z[i].repeat(hits_per_batch[i], 1) for i in range(z.size(0))], dim=0)
         for i in range(self.num_steps):
-            out = self.processors[i](torch.cat([zs, diffs], dim=1))
+            out = self.processors[i](torch.cat([zs, diffs], dim=1), pred_ind)
             mu, log_var = out[:, :input_dim], out[:, input_dim:]
             diffs = mu + torch.randn_like(diffs, device=self.device) * torch.exp(0.5 * log_var)
 

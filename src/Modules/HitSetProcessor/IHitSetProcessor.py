@@ -7,10 +7,11 @@ class IHitSetProcessor(nn.Module):
     into each hit in the set.
     """
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, x_ind: Tensor) -> Tensor:
         """
         Process a hit set.
 
-        :param Tensor int: The hit set to process. Shape `[num_hits, hit_dim]`.
+        :param Tensor x: The hit set to process. Shape `[num_hits, hit_dim]`.
+        :param Tensor x_ind: The batch index of each hit. Shape `[num_hits]`.
         """
         raise NotImplementedError
