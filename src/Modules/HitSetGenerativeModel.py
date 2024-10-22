@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from src.Modules.HitSetEncoder import HitSetEncoderEnum, GlobalPoolingEncoder
 from src.Modules.HitSetGenerator.DDPM import DDPMSetGenerator
 from src.Modules.HitSetGenerator.DDPM.BetaSchedules import CosineBetaSchedule
-from src.Modules.HitSetProcessor import LocalGNNProcessor, PointNetProcessor
+from src.Modules.HitSetProcessor import HitSetProcessorEnum, LocalGNNProcessor, PointNetProcessor
 from src.Modules.HitSetSizeGenerator import GaussianSizeGenerator, HitSetSizeGeneratorEnum
 from src.Modules.HitSetGenerator import AdjustingSetGenerator, HitSetGeneratorEnum
 from src.Pairing import PairingStrategyEnum
@@ -23,6 +23,9 @@ class HitSetGenerativeModel(nn.Module):
        At training time it may also optionally make use of the ground-truth point-cloud at the next time-step.
     """
 
+    DDPM_PROCESSOR = "ddpm_processor"
+    DDPM_NUM_STEPS = "ddpm_num_steps"
+
     def __init__(
         self,
         encoder_type: HitSetEncoderEnum,
@@ -35,6 +38,7 @@ class HitSetGenerativeModel(nn.Module):
         input_dim: int = 3,
         encoding_dim: int = 16,
         device: str = "cpu",
+        **kwargs,
     ):
         """
         :param HitSetEncoderEnum encoder_type: Type of encoder to use.
@@ -48,6 +52,9 @@ class HitSetGenerativeModel(nn.Module):
         :param int input_dim: Dimension of the input hits.
         :param int encoding_dim: Dimension of the encoded hits.
         :param str device: Device to run the model on.
+        :param kwargs: Additional arguments:
+        - `ddpm_processor`: HitSetProcessorEnum. Processor to use in the denoising step of DDPM.
+        - `ddpm_num_steps`: int. Number of steps in the diffusion process for DDPM.
         """
 
         super().__init__()
@@ -74,12 +81,17 @@ class HitSetGenerativeModel(nn.Module):
         self.size_generators = nn.ModuleList()
         self.set_generators = nn.ModuleList()
 
+        if coordinate_system == CoordinateSystemEnum.CARTESIAN:
+            input_channels = [0, 1, 2]
+        else:  # if coordinate_system == CoordinateSystemEnum.CYLINDRICAL:
+            input_channels = [0, 2]
+
         for t in range(time_step.get_num_time_steps() - 1):
             if encoder_type == HitSetEncoderEnum.POINT_NET:
-                processor = PointNetProcessor(device=device)
+                processor = PointNetProcessor(input_channels=input_channels, device=device)
                 self.encoders.append(GlobalPoolingEncoder(processor, device=device))
-            elif encoder_type == HitSetEncoderEnum.GNN:
-                processor = LocalGNNProcessor(coordinate_system, k=5, device=device)
+            elif encoder_type == HitSetEncoderEnum.LOCAL_GNN:
+                processor = LocalGNNProcessor(coordinate_system, k=5, input_channels=input_channels, device=device)
                 self.encoders.append(GlobalPoolingEncoder(processor, device=device))
 
             num_sizes = 1 if not use_shell_part_sizes else time_step.get_num_shell_parts(t + 1)
@@ -93,13 +105,43 @@ class HitSetGenerativeModel(nn.Module):
             elif set_generator_type == HitSetGeneratorEnum.NONE:
                 self.set_generators.append(None)
             elif set_generator_type == HitSetGeneratorEnum.DDPM:
-                num_steps = 100
+                num_steps = kwargs.get(self.DDPM_NUM_STEPS, 100)
                 beta_schedule = CosineBetaSchedule(offset=0.002, num_steps=num_steps)
-                denoising_processors = [
-                    PointNetProcessor(input_dim=encoding_dim + input_dim, hidden_dim=2 * input_dim, device=device)
-                    for _ in range(num_steps)
-                ]
-                decoder = PointNetProcessor(input_dim=encoding_dim + input_dim, hidden_dim=input_dim, device=device)
+
+                processor = kwargs.get(self.DDPM_PROCESSOR, HitSetProcessorEnum.POINT_NET)
+
+                if processor == HitSetProcessorEnum.POINT_NET:
+                    denoising_processors = [
+                        PointNetProcessor(
+                            input_dim=input_dim, extra_input_dim=encoding_dim, output_dim=2 * input_dim, device=device
+                        )
+                        for _ in range(num_steps)
+                    ]
+                    decoder = PointNetProcessor(
+                        input_dim=input_dim, extra_input_dim=encoding_dim, output_dim=input_dim, device=device
+                    )
+                else:  # if processor == HitSetEncoderEnum.LOCAL_GNN
+                    denoising_processors = [
+                        LocalGNNProcessor(
+                            coordinate_system,
+                            k=2,
+                            input_dim=input_dim,
+                            extra_input_dim=encoding_dim,
+                            output_dim=2 * input_dim,
+                            num_layers=2,
+                            device=device,
+                        )
+                        for _ in range(num_steps)
+                    ]
+                    decoder = LocalGNNProcessor(
+                        coordinate_system,
+                        k=2,
+                        input_dim=input_dim,
+                        extra_input_dim=encoding_dim,
+                        output_dim=input_dim,
+                        num_layers=2,
+                        device=device,
+                    )
 
                 self.set_generators.append(
                     DDPMSetGenerator(

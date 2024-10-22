@@ -1,9 +1,9 @@
 from enum import Enum
 
 
-class HitSetEncoderEnum(Enum):
+class HitSetProcessorEnum(Enum):
     """
-    Enum class for the different encoders
+    Enum class for HitSetProcessor
     """
 
     POINT_NET = "point_net"
