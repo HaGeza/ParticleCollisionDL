@@ -57,6 +57,14 @@ class PointNetProcessor(IHitSetProcessor):
             raise ValueError("Number of layers must be at least 1.")
 
     def forward(self, x: Tensor, x_ind: Tensor, **kwargs) -> Tensor:
+        """
+        This method overrides :meth:`IHitSetProcessor.forward`.
+
+        Additional keyword arguments:
+        - `encodings_for_ddpm`: The output of the encoder. If provided, the
+            encodings are added to the input and intermediate tensors.
+        """
+
         x = x[:, self.input_channels]
 
         encodings = kwargs.get(self.ENCODING_FOR_DDPM)

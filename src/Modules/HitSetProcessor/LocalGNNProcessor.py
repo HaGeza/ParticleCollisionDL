@@ -2,8 +2,7 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from src.Util import CoordinateSystemEnum
-from src.Util.CoordinateSystemFuncs import convert_to_cartesian
+from src.Util import CoordinateSystemEnum, convert_to_cartesian, get_coord_differences
 from .IHitSetProcessor import IHitSetProcessor
 
 
@@ -32,6 +31,8 @@ class LocalGNNProcessor(IHitSetProcessor):
         :param list[int] input_channels: The input channels to use
         :param int input_dim: The dimension of the extra input to add to the input tensor,
             that does not get used for message passing
+        :param extra_input_dim: The dimension of the extra input to add to the input tensor.
+            The extra input is not used for message passing.
         :param int hidden_dim: The number of hidden dimensions
         :param int output_dim: The number of output dimensions
         :param int num_layers: The number of layers in the encoder.
@@ -47,16 +48,16 @@ class LocalGNNProcessor(IHitSetProcessor):
         self.layers = nn.ModuleList()
 
         self.input_dim, self.input_channels = self._get_input_dim_and_channels(input_dim, input_channels)
+        self.extra_input_dim = extra_input_dim
         self.hidden_dim = hidden_dim
         self.output_dim = output_dim if output_dim is not None else hidden_dim
-        self.extra_input_dim = extra_input_dim
 
         self.cdist_chunk_max_size = cdist_chunk_max_size
         self.activation = activation
         self.device = device
 
         def get_linear_layer_dim(in_dim: int):
-            return in_dim * (k + 1) + k + self.extra_input_dim
+            return in_dim * (k + 1) + k * 3 + self.extra_input_dim
 
         if num_layers > 1:
             self.layers.append(nn.Linear(get_linear_layer_dim(self.input_dim), hidden_dim, device=device))
@@ -72,7 +73,7 @@ class LocalGNNProcessor(IHitSetProcessor):
         self,
         x: Tensor,
         neighbor_inds: Tensor,
-        neighbor_dists: Tensor,
+        neighbor_diffs: Tensor,
         encodings: Tensor | None,
         channels: list[int] = None,
     ) -> Tensor:
@@ -82,8 +83,8 @@ class LocalGNNProcessor(IHitSetProcessor):
         :param Tensor x: The input tensor. Shape `[num_hits, input_dim]`.
         :param Tensor neighbor_inds: The indices of the K closest neighbors of each of the nodes in `x`.
             Shape `[num_hits, input_dim * k]`.
-        :param Tensor neighbor_dists: The distances to each of the K closest neighbors of each of the nodes in `x`.
-            Shape `[num_hits, k]`.
+        :param Tensor neighbor_diffs: The attributes of the edges connecting the nodes to their neighbors.
+            Shape `[num_hits, k]` or `[num_hits, k, num_neighbor_diffs]`.
         :param Tensor encodings: The encodings to add to the input tensor. Shape `[num_hits, encoding_dim]`.
             If `None`, do not add encodings.
         :param list[int] channels: The list of channels to select from the input tensor
@@ -101,73 +102,90 @@ class LocalGNNProcessor(IHitSetProcessor):
         if encodings is not None:
             graph_tensor = torch.cat([graph_tensor, encodings], dim=1)
 
-        # Add distances and return
-        return torch.cat([graph_tensor, neighbor_dists], dim=1)
+        # Add attributes
+        return torch.cat([graph_tensor, neighbor_diffs.view(neighbor_diffs.size(0), -1)], dim=1)
+
+    NEIGHBOR_INDS = "neighbor_inds"
+    neighbor_diffS = "neighbor_diffs"
+
+    def get_top_k_neighbors(self, x: Tensor, k: int = 0) -> tuple[Tensor, Tensor]:
+        """
+        Get the indices and coordinate differences of the K nearest neighbors
+        of each point in the input tensor.
+
+        :param Tensor x: The input tensor. Shape `[num_hits, 3]`.
+        :param int k: The number of neighbors to get. If 0 or less, use `self.k`.
+        :return tuple[Tensor, Tensor]: The indices of the neighbors and the coordinate differences.
+        """
+
+        k = k if k > 0 else self.k
+        x_cart = convert_to_cartesian(x, self.input_coord_system)
+
+        c_start = 0
+        cdist_chunks = x.shape[0] // self.cdist_chunk_max_size + 1
+        c_size = x.shape[0] // cdist_chunks + 1
+
+        neighbor_inds = torch.empty([0, k], device=self.device, dtype=torch.long)
+        neighbor_diffs = torch.empty([0, k, 3], device=self.device, dtype=torch.float32)
+
+        for _ in range(cdist_chunks):
+            c_end = min(c_start + c_size, x.shape[0])
+
+            with torch.no_grad():
+                dists = torch.cdist(x_cart[c_start:c_end], x_cart, p=2)
+                topk_inds = torch.topk(dists, k + 1, dim=1, largest=False, sorted=True)[1][:, 1:]
+                neighbor_inds = torch.cat([neighbor_inds, topk_inds], dim=0)
+
+            diffs = get_coord_differences(
+                x[c_start:c_end], x[topk_inds].transpose(0, 1), self.input_coord_system
+            ).transpose(0, 1)
+            neighbor_diffs = torch.cat([neighbor_diffs, diffs], dim=0)
+
+            c_start = c_end
+
+        return neighbor_inds, neighbor_diffs
 
     def forward(self, x: Tensor, x_ind: Tensor, **kwargs) -> Tensor:
-        x = convert_to_cartesian(x, self.input_coord_system)
+        """
+        This method overrides :meth:`IHitSetProcessor.forward`.
 
-        neighbor_inds = torch.empty([0, self.k], device=self.device, dtype=torch.long)
-        neighbor_dists = torch.empty([0, self.k], device=self.device, dtype=torch.float32)
-        x_padded = torch.empty([0, x.shape[1]], device=self.device, dtype=torch.float32)
-        padding_inds = torch.tensor([], device=self.device, dtype=torch.long)
+        Additional keyword arguments:
+        - `encodings_for_ddpm`: The output of the encoder. Used for implementing
+            specialized logic in the denoising processors of the DDPM.
+        - `neighbor_inds`: Optional precomputed graph connections. Shape `[num_hits, k]`.
+            If not provided, the connections are computed using k-nearest neighbors.
+        - `neighbor_diffs`: Optional precomputed graph attributes. Shape `[num_hits, k, num_neighbor_diffs]`.
+            If not provided, the coordinate differences are used as edge attributes.
+        """
+        # Get nearest neighbors in case they have been precomputed
+        neighbor_inds = kwargs.get(self.NEIGHBOR_INDS)
+        neighbor_diffs = kwargs.get(self.neighbor_diffS)
+
+        compute_neighbors = False
+        if neighbor_inds is None or neighbor_diffs is None:
+            neighbor_inds = torch.empty([0, self.k], device=self.device, dtype=torch.long)
+            neighbor_diffs = torch.empty([0, self.k, 3], device=self.device, dtype=torch.float32)
+            compute_neighbors = True
 
         if x_ind.size(0) == 0:
             return torch.empty([0, self.output_dim], device=self.device, dtype=torch.float32)
 
+        # Get encodings in case of DDPM denoising
         encodings = kwargs.get(self.ENCODING_FOR_DDPM)
-        if encodings is not None:
-            encodings_padded = torch.empty([0, encodings.shape[1]], device=self.device, dtype=torch.float32)
-        else:
-            encodings_padded = None
 
-        B = x_ind.max().item() + 1
-        b_start = 0
-        for b in range(B):
-            mask = x_ind == b
-            x_b = x[mask]
-            if encodings is not None:
-                encodings_b = encodings[mask]
+        # Nearest neighbors have not been precomputed => calculate distance matrix
+        if compute_neighbors:
+            b_start = 0
+            for b in range(x_ind.max().item() + 1):
+                x_b = x[x_ind == b]
+                neighbor_inds_b, neighbor_diffs_b = self.get_top_k_neighbors(x_b)
+                neighbor_inds = torch.cat([neighbor_inds, neighbor_inds_b + b_start], dim=0)
+                neighbor_diffs = torch.cat([neighbor_diffs, neighbor_diffs_b], dim=0)
+                b_start = neighbor_inds.size(0)
 
-            if x_b.shape[0] < self.k + 1:
-                padding_size = self.k + 1 - x_b.shape[0]
-                padding_start = b_start + x_b.shape[0]
-                padding_inds = torch.cat(
-                    [padding_inds, padding_start + torch.arange(padding_size, device=self.device)], dim=0
-                )
-                x_b = torch.cat([x_b, torch.zeros([padding_size, x_b.shape[1]], device=self.device)], dim=0)
-                if encodings is not None:
-                    if encodings_b.shape[0] == 0:
-                        encodings_b = torch.zeros([padding_size, encodings.shape[1]], device=self.device)
-                    else:
-                        encodings_b = torch.cat([encodings_b, encodings_b[-1].repeat(padding_size, 1)], dim=0)
-
-            x_padded = torch.cat([x_padded, x_b], dim=0)
-            if encodings is not None:
-                encodings_padded = torch.cat([encodings_padded, encodings_b], dim=0)
-
-            c_start = b_start
-            cdist_chunks = x_b.shape[0] // self.cdist_chunk_max_size + 1
-            c_size = x_b.shape[0] // cdist_chunks + 1
-
-            for _ in range(cdist_chunks):
-                c_end = min(c_start + c_size, b_start + x_b.shape[0])
-                dists = torch.cdist(x_b[c_start - b_start : c_end - b_start], x_b, p=2)
-
-                topk_dists, topk_inds = torch.topk(dists, self.k + 1, dim=1, largest=False, sorted=True)
-                neighbor_inds = torch.cat([neighbor_inds, topk_inds[:, 1:] + b_start], dim=0)
-                neighbor_dists = torch.cat([neighbor_dists, topk_dists[:, 1:]], dim=0)
-                c_start = c_end
-            b_start = c_end
-
-        x = self._create_local_graph_tensor(
-            x_padded, neighbor_inds, neighbor_dists, encodings_padded, self.input_channels
-        )
+        # Neural network forward pass
+        x = self._create_local_graph_tensor(x, neighbor_inds, neighbor_diffs, encodings, self.input_channels)
         for layer in self.layers[:-1]:
             x = self.activation(layer(x))
-            x = self._create_local_graph_tensor(x, neighbor_inds, neighbor_dists, encodings_padded)
-        x = self.layers[-1](x)
-
-        mask = torch.ones(x.shape[0], device=self.device, dtype=torch.bool)
-        mask[padding_inds] = False
-        return x[mask]
+            x = self._create_local_graph_tensor(x, neighbor_inds, neighbor_diffs, encodings)
+        return self.layers[-1](x)

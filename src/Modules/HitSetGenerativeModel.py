@@ -1,6 +1,5 @@
 import torch
 from torch import nn, Tensor
-import torch.nn.functional as F
 
 from src.Modules.HitSetEncoder import HitSetEncoderEnum, GlobalPoolingEncoder
 from src.Modules.HitSetGenerator.DDPM import DDPMSetGenerator
@@ -25,6 +24,8 @@ class HitSetGenerativeModel(nn.Module):
 
     DDPM_PROCESSOR = "ddpm_processor"
     DDPM_NUM_STEPS = "ddpm_num_steps"
+    DDPM_DEFAULT_PROCESSOR = HitSetProcessorEnum.POINT_NET
+    DDPM_DEFUALT_NUM_STEPS = 100
 
     def __init__(
         self,
@@ -77,9 +78,16 @@ class HitSetGenerativeModel(nn.Module):
             "using_shell_part_sizes": use_shell_part_sizes,
         }
 
+        if set_generator_type == HitSetGeneratorEnum.DDPM:
+            self.information["ddpm"] = {
+                "num_steps": kwargs.get(self.DDPM_NUM_STEPS, self.DDPM_DEFUALT_NUM_STEPS),
+                "processor": kwargs.get(self.DDPM_PROCESSOR, self.DDPM_DEFAULT_PROCESSOR).value,
+            }
+
         self.encoders = nn.ModuleList()
         self.size_generators = nn.ModuleList()
         self.set_generators = nn.ModuleList()
+        self.min_size_to_generate = 0
 
         if coordinate_system == CoordinateSystemEnum.CARTESIAN:
             input_channels = [0, 1, 2]
@@ -105,11 +113,12 @@ class HitSetGenerativeModel(nn.Module):
             elif set_generator_type == HitSetGeneratorEnum.NONE:
                 self.set_generators.append(None)
             elif set_generator_type == HitSetGeneratorEnum.DDPM:
-                num_steps = kwargs.get(self.DDPM_NUM_STEPS, 100)
+                num_steps = kwargs.get(self.DDPM_NUM_STEPS, self.DDPM_DEFUALT_NUM_STEPS)
                 beta_schedule = CosineBetaSchedule(offset=0.002, num_steps=num_steps)
 
-                processor = kwargs.get(self.DDPM_PROCESSOR, HitSetProcessorEnum.POINT_NET)
+                processor = kwargs.get(self.DDPM_PROCESSOR, self.DDPM_DEFAULT_PROCESSOR)
 
+                gnn_processor_used = False
                 if processor == HitSetProcessorEnum.POINT_NET:
                     denoising_processors = [
                         PointNetProcessor(
@@ -121,10 +130,14 @@ class HitSetGenerativeModel(nn.Module):
                         input_dim=input_dim, extra_input_dim=encoding_dim, output_dim=input_dim, device=device
                     )
                 else:  # if processor == HitSetEncoderEnum.LOCAL_GNN
+                    k = 3
+                    gnn_processor_used = True
+                    self.min_size_to_generate = k + 1
+
                     denoising_processors = [
                         LocalGNNProcessor(
                             coordinate_system,
-                            k=2,
+                            k=k,
                             input_dim=input_dim,
                             extra_input_dim=encoding_dim,
                             output_dim=2 * input_dim,
@@ -135,7 +148,7 @@ class HitSetGenerativeModel(nn.Module):
                     ]
                     decoder = LocalGNNProcessor(
                         coordinate_system,
-                        k=2,
+                        k=k,
                         input_dim=input_dim,
                         extra_input_dim=encoding_dim,
                         output_dim=input_dim,
@@ -153,6 +166,7 @@ class HitSetGenerativeModel(nn.Module):
                         beta_schedule,
                         denoising_processors,
                         decoder,
+                        gnn_processor_used,
                         device=device,
                     )
                 )
@@ -188,12 +202,12 @@ class HitSetGenerativeModel(nn.Module):
 
         z = self.encoders[t - 1](x, x_ind, gt_size.size(0))
         pred_size = self.size_generators[t - 1](z, gt, gt_ind)
-        size_loss = F.mse_loss(pred_size, gt_size)
+        size_loss = self.size_generators[t - 1].calc_loss(pred_size, gt_size)
 
         if self.set_generators[t - 1] is not None:
             # Use the ground truth sizes (rounded to integers) for set generation
             with torch.no_grad():
-                used_size = torch.clamp(gt_size, min=0.0).round().int()
+                used_size = torch.clamp(gt_size, min=self.min_size_to_generate).round().int()
 
             # Calculate the indices for the pairing strategy
             flat_size = used_size if used_size.dim() == 1 else used_size.sum(dim=1)
@@ -225,7 +239,9 @@ class HitSetGenerativeModel(nn.Module):
         z = self.encoders[t - 1](x, x_ind, batch_size)
         size = self.size_generators[t - 1].generate(z)
         hits = (
-            self.set_generators[t - 1].generate(z, size.round().int().clamp(min=0), initial_pred)
+            self.set_generators[t - 1].generate(
+                z, torch.clamp(size, min=self.min_size_to_generate).round().int(), initial_pred
+            )
             if self.set_generators[t - 1] is not None
             else torch.tensor([], device=self.device)
         )

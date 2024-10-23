@@ -32,3 +32,22 @@ def convert_from_cylindrical(x: Tensor, coordinate_system: CoordinateSystemEnum)
     if coordinate_system == CoordinateSystemEnum.CYLINDRICAL:
         return x
     raise ValueError(f"Unknown coordinate system: {coordinate_system}")
+
+
+def get_coord_differences(x: Tensor, y: Tensor, coordinate_system: CoordinateSystemEnum) -> Tensor:
+    """
+    Get the coordinate differences between x and y in the given coordinate system.
+
+    :param Tensor x: The first tensor of points. Shape `[..., 3]`.
+    :param Tensor y: The second tensor of points. Shape `[..., 3]`.
+        Must be broadcastable with x.
+    :param CoordinateSystemEnum coordinate_system: The coordinate system.
+    :return Tensor: The coordinate differences. Shape `[..., 3]`.
+    """
+
+    if coordinate_system == CoordinateSystemEnum.CARTESIAN:
+        return x - y
+    # if coordinate_system == CoordinateSystemEnum.CYLINDRICAL:
+    diffs = x - y
+    diffs[:, 1] = (diffs[:, 1] + 2 * torch.pi) % (2 * torch.pi)
+    return diffs

@@ -174,7 +174,7 @@ if __name__ == "__main__":
         default=None,
         help="minimum learning rate for training; if not specified, equal to lr",
     )
-    ap.add_argument("--size_loss_weight", default=0.01, help="weight for the size loss")
+    ap.add_argument("--size_loss_weight", default=Trainer.DEFAULT_SIZE_LOSS_W, help="weight for the size loss")
     ap.add_argument("-r", "--random_seed", default=42, help="random seed")
     ap.add_argument(
         "--coordinate_system",

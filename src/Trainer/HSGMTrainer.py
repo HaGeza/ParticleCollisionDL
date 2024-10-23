@@ -9,12 +9,16 @@ from torch.optim import lr_scheduler, Optimizer
 from src.Data import IDataLoader
 from src.Trainer.TrainingRunIO import TrainingRunIO
 from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel
+from src.Util import CoordinateSystemEnum
+from src.Util.CoordinateSystemFuncs import convert_to_cartesian
 
 
 class Trainer:
     """
     Trainer class for training a `HitSetGenerativeModel`s
     """
+
+    DEFAULT_SIZE_LOSS_W = 1000
 
     def __init__(
         self,
@@ -25,7 +29,7 @@ class Trainer:
         run_io: TrainingRunIO,
         start_epoch: int = 0,
         epochs: int = 100,
-        size_loss_weight: float = 0.01,
+        size_loss_weight: float = DEFAULT_SIZE_LOSS_W,
         device: str = "cpu",
     ):
         """
@@ -54,7 +58,9 @@ class Trainer:
         if model.device != device:
             model.to(device)
 
-    def _get_hausdorff_distance(self, pred_tensor: Tensor, gt_tensor: Tensor) -> Tensor:
+    def _get_hausdorff_distance(
+        self, pred_tensor: Tensor, gt_tensor: Tensor, coordinate_system: CoordinateSystemEnum
+    ) -> Tensor:
         """
         Calculate the Hausdorff distance between the predicted and ground truth hit sets.
 
@@ -66,14 +72,17 @@ class Trainer:
         if pred_tensor.size(0) == 0 or gt_tensor.size(0) == 0:
             return torch.tensor(0.0, dtype=torch.float32, device=self.device)
 
-        if pred_tensor.device.type != "cuda":
-            pred_hits = pred_tensor.cpu().numpy()
-            gt_hits = gt_tensor.cpu().numpy()
+        pred_cart = convert_to_cartesian(pred_tensor, coordinate_system)
+        gt_cart = convert_to_cartesian(gt_tensor, coordinate_system)
+
+        if pred_cart.device.type != "cuda":
+            pred_hits = pred_cart.cpu().numpy()
+            gt_hits = gt_cart.cpu().numpy()
 
             pred_to_gt = directed_hausdorff(pred_hits, gt_hits)[0]
             gt_to_pred = directed_hausdorff(gt_hits, pred_hits)[0]
         else:
-            dists = torch.cdist(pred_tensor, gt_tensor, p=2)
+            dists = torch.cdist(pred_cart, gt_cart, p=2)
             pred_to_gt = torch.min(dists, dim=1)[0].max(dim=0)[0].item()
             gt_to_pred = torch.min(dists, dim=0)[0].max(dim=0)[0].item()
 
@@ -110,7 +119,7 @@ class Trainer:
 
                 pred_size, pred_tensor = self.model.generate(in_tensor, in_batch_index, t, batch_size=B)
 
-                used_size = torch.clamp(pred_size, min=0.0).round().int()
+                used_size = torch.clamp(pred_size, min=self.model.min_size_to_generate).round().int()
                 if used_size.dim() > 1:
                     used_size = used_size.sum(dim=1)
 
@@ -120,12 +129,14 @@ class Trainer:
                     )
                     for b in range(B):
                         hds[t - 1] += self._get_hausdorff_distance(
-                            pred_tensor[pred_batch_index == b], gt_tensor[gt_batch_index == b]
+                            pred_tensor[pred_batch_index == b],
+                            gt_tensor[gt_batch_index == b],
+                            self.model.coordinate_system,
                         ).item()
                 else:
                     pred_batch_index = torch.tensor([], device=self.device, dtype=torch.long)
 
-                mses[t - 1] += F.mse_loss(pred_size, gt_size).item()
+                mses[t - 1] += self.model.size_generators[t - 1].calc_loss(pred_size, gt_size).item()
                 num_entries += B
 
                 in_tensor = pred_tensor
@@ -170,7 +181,8 @@ class Trainer:
                         in_tensor, gt_tensor, in_batch_index, gt_batch_index, gt_size, t, initial_pred
                     )
 
-                    loss = size_loss * self.size_loss_weight + set_loss
+                    size_loss = size_loss * self.size_loss_weight
+                    loss = size_loss + set_loss
                     loss.backward()
                     self.optimizer.step()
 

@@ -1,11 +1,11 @@
 from torch import Tensor, nn
 import torch
 
-from src.Modules.HitSetProcessor import IHitSetProcessor
+from src.Modules.HitSetProcessor import IHitSetProcessor, LocalGNNProcessor
 from src.Pairing import PairingStrategyEnum
 from src.TimeStep.ForAdjusting import ITimeStepForAdjusting
 from src.Util import CoordinateSystemEnum
-from src.Util.CoordinateSystemFuncs import convert_to_cartesian
+from src.Util.CoordinateSystemFuncs import convert_to_cartesian, get_coord_differences
 from src.Util.Distributions import log_normal_diag, log_standard_normal
 from ..AdjustingSetGenerator import AdjustingSetGenerator
 from .BetaSchedules import IBetaSchedule
@@ -22,6 +22,7 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         beta_schedule: IBetaSchedule,
         denoising_processors: list[IHitSetProcessor],
         decoder: IHitSetProcessor,
+        gnn_processor_used: bool = False,
         device: str = "cpu",
     ):
         """
@@ -36,6 +37,7 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         :param IBetaSchedule beta_schedule: Schedule for the beta values.
         :param list[IHitSetProcessor] denoising_processors: List of denoising processors.
         :param IHitSetProcessor decoder: Final denoising processor.
+        :param bool gnn_processor_used: Whether the GNN processor is used.
         :param str device: Device to load the data on.
         """
 
@@ -51,6 +53,7 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         self.betas = torch.tensor(beta_schedule.get_betas())
         self.processors = nn.ModuleList(denoising_processors)
         self.decoder = decoder
+        self.gnn_processor_used = gnn_processor_used
 
     def _add_noise(self, x: Tensor, step: int) -> Tensor:
         """
@@ -76,6 +79,77 @@ class DDPMSetGenerator(AdjustingSetGenerator):
             latent, torch.sqrt(1.0 - self.betas[beta_ind]) * latent, torch.log(self.betas[beta_ind])
         )
 
+    def get_gnn_potential_neighbors(
+        self, x: Tensor, x_ind: Tensor, processor: LocalGNNProcessor, k_multiplier: int = 3
+    ) -> tuple[Tensor, Tensor]:
+        """
+        Get the potential neighbors for the GNN processor.
+
+        :param Tensor x: Input tensor. Shape `[num_hits, hit_dim]`.
+        :param Tensor x_ind: Index tensor. Shape `[num_hits]`.
+        :param LocalGNNProcessor processor: GNN processor (should be one of the denoising networks).
+        :param int k_multiplier: Multiplier for the number of neighbors. The number of potential
+            neighbors for each node is `processor.k * k_multiplier`.
+        :return tuple[Tensor, Tensor]: Potential neighbor indices and potential neighbor differences,
+            with shapes `[num_hits, num_potential]` and `[num_hits, num_potential, hit_dim]`,
+            respectively, where `num_potential = processor.k * k_multiplier`.
+        """
+        num_potential = processor.k * k_multiplier
+        potential_neighbor_inds = torch.empty([0, num_potential], device=self.device, dtype=torch.long)
+        potential_neighbor_diffs = torch.empty([0, num_potential, x.size(1)], device=self.device)
+        b_start = 0
+        for b in range(x_ind.max().item() + 1):
+            x_b = x[x_ind == b]
+
+            padding_size = 0
+            if x_b.size(0) < num_potential:
+                padding_size = num_potential - x_b.size(0)
+                x_b = torch.cat([x_b, torch.zeros([padding_size, x_b.size(1)], device=self.device)], dim=0)
+            potential_n_inds_b, potential_n_diffs_b = processor.get_top_k_neighbors(x_b, k=processor.k * 3)
+
+            # Take out padding columns
+            potential_n_inds_b = potential_n_inds_b[: x_b.size(0)]
+            potential_n_diffs_b = potential_n_diffs_b[: x_b.size(0)]
+            # Change padding rows to zeros
+            if padding_size > 0:
+                potential_n_inds_b[:, -padding_size:] = 0
+                potential_n_diffs_b[:, -padding_size:] = 0
+
+            potential_neighbor_inds = torch.cat([potential_neighbor_inds, potential_n_inds_b + b_start], dim=0)
+            potential_neighbor_diffs = torch.cat([potential_neighbor_diffs, potential_n_diffs_b], dim=0)
+
+            b_start += x_b.size(0)
+
+        return potential_neighbor_inds, potential_neighbor_diffs
+
+    def pick_k_nearest(self, x: Tensor, potential_neighbor_inds: Tensor, k: int) -> tuple[Tensor, Tensor]:
+        """
+        Pick the `k` nearest neighbors for each point in the input tensor.
+
+        :param Tensor x: Input tensor. Shape `[num_hits, hit_dim]`.
+        :param Tensor potential_neighbor_inds: Potential neighbor indices tensor.
+            Shape `[num_hits, num_potential]`.
+        :param int k: Number of neighbors to pick.
+        :return tuple[Tensor, Tensor]: Indices of the `k` nearest neighbors and their differences,
+            with shapes `[num_hits, k]` and `[num_hits, k, hit_dim]`, respectively.
+        """
+
+        neighbors = x[potential_neighbor_inds].transpose(0, 1)
+        dists = ((x - neighbors) ** 2).sum(dim=-1).sqrt().T
+
+        topk_inds = torch.topk(dists, k + 1, dim=1, largest=False, sorted=True)[1][:, 1:].contiguous()
+
+        # `topk_inds` contains indices within the potential neighbors tensor, so convert these
+        # to the original indices. This should be done with `torch.scatter` but that produces
+        # CUDA errors on snellius.
+        row_inds = torch.arange(topk_inds.size(0), device=topk_inds.device).unsqueeze(1).expand_as(topk_inds)
+        topk_inds = potential_neighbor_inds[row_inds, topk_inds]
+
+        topk_diffs = get_coord_differences(x, x[topk_inds].transpose(0, 1), self.coordinate_system)
+        topk_diffs = topk_diffs.transpose(0, 1)
+
+        return topk_inds, topk_diffs
+
     def forward(
         self,
         z: Tensor,
@@ -94,7 +168,7 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         pairs, num_pairs_per_batch = self.pairing_strategy.create_pairs(
             initial_pred_cart, gt_cart, pred_ind, gt_ind, paired=paired
         )
-        diffs = gt_cart[pairs[:, 1]] - initial_pred_cart[pairs[:, 0]]
+        diffs = get_coord_differences(gt[pairs[:, 1]], initial_pred[pairs[:, 0]], self.coordinate_system)
         input_dim = initial_pred.size(1)
 
         # create noisy steps
@@ -107,12 +181,34 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         log_vars = [None for _ in range(self.num_steps)]
         zs = torch.cat([z[i].repeat(num_pairs_per_batch[i], 1) for i in range(z.size(0))], dim=0)
 
+        neighbor_inds, neighbor_diffs = None, None
+        if self.gnn_processor_used:
+            processor: LocalGNNProcessor = self.decoder
+            potential_neighbor_inds, potential_neighbor_diffs = self.get_gnn_potential_neighbors(
+                initial_pred, pred_ind, processor
+            )
+            neighbor_inds = potential_neighbor_inds[:, : processor.k]
+            neighbor_diffs = potential_neighbor_diffs[:, : processor.k]
+
         for i in range(self.num_steps - 1, -1, -1):
-            out = self.processors[i](latents[i - 1], pred_ind, encodings_for_ddpm=zs)
+            out = self.processors[i](
+                latents[i - 1],
+                pred_ind,
+                encodings_for_ddpm=zs,
+                neighbor_inds=neighbor_inds,
+                neighbor_diffs=neighbor_diffs,
+            )
             mus[i], log_vars[i] = out[:, :input_dim], out[:, input_dim:]
 
+            if self.gnn_processor_used:
+                neighbor_inds, neighbor_diffs = self.pick_k_nearest(
+                    initial_pred[pairs[:, 0]] + mus[i], potential_neighbor_inds, processor.k
+                )
+
         # predict final mu with final denoising network
-        pred_diffs = self.decoder(latents[0], pred_ind, encodings_for_ddpm=zs)
+        pred_diffs = self.decoder(
+            latents[0], pred_ind, encodings_for_ddpm=zs, neighbor_inds=neighbor_inds, neighbor_diffs=neighbor_diffs
+        )
 
         # calculate ELBO
         re_term = (log_standard_normal(diffs - pred_diffs)).sum(dim=1)
@@ -132,16 +228,36 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         initial_points = super().generate(z, size, initial_pred)
         input_dim = initial_points.size(1)
 
-        # put standard normal around paired predicted points
+        # Put standard normal around paired predicted points
         diffs = torch.randn_like(initial_points, device=self.device)
+
+        # Calculate potential neighbors for GNN processor
+        neighbor_inds, neighbor_diffs = None, None
+        if self.gnn_processor_used:
+            processor: LocalGNNProcessor = self.decoder
+            potential_neighbor_inds, potential_neighbor_diffs = self.get_gnn_potential_neighbors(
+                initial_points, pred_ind, processor
+            )
+            neighbor_inds = potential_neighbor_inds[:, : processor.k]
+            neighbor_diffs = potential_neighbor_diffs[:, : processor.k]
 
         # denoise movement distributions
         zs = torch.cat([z[i].repeat(hits_per_batch[i], 1) for i in range(z.size(0))], dim=0)
         for i in range(self.num_steps):
-            out = self.processors[i](diffs, pred_ind, encodings_for_ddpm=zs)
+            out = self.processors[i](
+                diffs, pred_ind, encodings_for_ddpm=zs, neighbor_inds=neighbor_inds, neighbor_diffs=neighbor_diffs
+            )
             mu, log_var = out[:, :input_dim], out[:, input_dim:]
             diffs = mu + torch.randn_like(diffs, device=self.device) * torch.exp(0.5 * log_var)
-        diffs = self.decoder(diffs, pred_ind, encodings_for_ddpm=zs)
+
+            if self.gnn_processor_used:
+                neighbor_inds, neighbor_diffs = self.pick_k_nearest(
+                    initial_points + diffs, potential_neighbor_inds, processor.k
+                )
+
+        diffs = self.decoder(
+            diffs, pred_ind, encodings_for_ddpm=zs, neighbor_inds=neighbor_inds, neighbor_diffs=neighbor_diffs
+        )
 
         # move points according to sample from denoised movement distributions
         return initial_points + diffs
