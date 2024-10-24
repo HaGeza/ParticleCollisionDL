@@ -117,9 +117,8 @@ class Trainer:
                 gt_size, _ = data_loader.get_gt_size(gt_tensor, gt_batch_index, t, events=event_ids)
                 B = gt_size.size(0)
 
-                pred_size, pred_tensor = self.model.generate(in_tensor, in_batch_index, t, batch_size=B)
+                pred_size, pred_tensor, used_size = self.model.generate(in_tensor, in_batch_index, t, batch_size=B)
 
-                used_size = torch.clamp(pred_size, min=self.model.min_size_to_generate).round().int()
                 if used_size.dim() > 1:
                     used_size = used_size.sum(dim=1)
 

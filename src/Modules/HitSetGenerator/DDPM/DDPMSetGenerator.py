@@ -21,7 +21,6 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         num_steps: int,
         beta_schedule: IBetaSchedule,
         denoising_processors: list[IHitSetProcessor],
-        decoder: IHitSetProcessor,
         gnn_processor_used: bool = False,
         device: str = "cpu",
     ):
@@ -36,7 +35,6 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         :param int num_steps: Number of steps in the diffusion process.
         :param IBetaSchedule beta_schedule: Schedule for the beta values.
         :param list[IHitSetProcessor] denoising_processors: List of denoising processors.
-        :param IHitSetProcessor decoder: Final denoising processor.
         :param bool gnn_processor_used: Whether the GNN processor is used.
         :param str device: Device to load the data on.
         """
@@ -52,8 +50,11 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         self.num_steps = num_steps
         self.betas = torch.tensor(beta_schedule.get_betas())
         self.processors = nn.ModuleList(denoising_processors)
-        self.decoder = decoder
         self.gnn_processor_used = gnn_processor_used
+
+        output_dim = self.processors[0].output_dim
+        self.noise_mus = torch.tensor([0] * output_dim, device=self.device, dtype=torch.float32)
+        self.noise_vars = torch.tensor([1] * output_dim, device=self.device, dtype=torch.float32)
 
     def _add_noise(self, x: Tensor, step: int) -> Tensor:
         """
@@ -98,6 +99,7 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         potential_neighbor_inds = torch.empty([0, num_potential], device=self.device, dtype=torch.long)
         potential_neighbor_diffs = torch.empty([0, num_potential, x.size(1)], device=self.device)
         b_start = 0
+
         for b in range(x_ind.max().item() + 1):
             x_b = x[x_ind == b]
 
@@ -171,42 +173,49 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         diffs = get_coord_differences(gt[pairs[:, 1]], initial_pred[pairs[:, 0]], self.coordinate_system)
         input_dim = initial_pred.size(1)
 
-        # create noisy steps
+        # Forward process: create noisy steps. The first latent is the least noisy,
+        # and the last latent is the most noisy.
         latents = [self._add_noise(diffs, 0)]
         for i in range(1, self.num_steps):
             latents.append(self._add_noise(latents[-1], i))
 
         # predict mus and log_vars with denoising networks
-        mus = [None for _ in range(self.num_steps)]
-        log_vars = [None for _ in range(self.num_steps)]
+        mus = [None for _ in range(self.num_steps - 1)]
+        log_vars = [None for _ in range(self.num_steps - 1)]
         zs = torch.cat([z[i].repeat(num_pairs_per_batch[i], 1) for i in range(z.size(0))], dim=0)
 
         neighbor_inds, neighbor_diffs = None, None
         if self.gnn_processor_used:
-            processor: LocalGNNProcessor = self.decoder
+            processor: LocalGNNProcessor = self.processors[0]
             potential_neighbor_inds, potential_neighbor_diffs = self.get_gnn_potential_neighbors(
                 initial_pred, pred_ind, processor
             )
             neighbor_inds = potential_neighbor_inds[:, : processor.k]
             neighbor_diffs = potential_neighbor_diffs[:, : processor.k]
 
-        for i in range(self.num_steps - 1, -1, -1):
+        # Adjust final latent distribution
+        with torch.no_grad():
+            self.noise_mus = self.noise_mus * 0.9 + latents[-1].mean(dim=0) * 0.1
+            self.noise_vars = self.noise_vars * 0.9 + latents[-1].var(dim=0) * 0.1
+
+        # Reverse process: denoise latent steps. Remove noise from the last latent to the first latent.
+        for i in range(self.num_steps - 1, 0, -1):
             out = self.processors[i](
-                latents[i - 1],
+                latents[i],
                 pred_ind,
                 encodings_for_ddpm=zs,
                 neighbor_inds=neighbor_inds,
                 neighbor_diffs=neighbor_diffs,
             )
-            mus[i], log_vars[i] = out[:, :input_dim], out[:, input_dim:]
+            mus[i - 1], log_vars[i - 1] = out[:, :input_dim], out[:, input_dim:]
 
             if self.gnn_processor_used:
                 neighbor_inds, neighbor_diffs = self.pick_k_nearest(
-                    initial_pred[pairs[:, 0]] + mus[i], potential_neighbor_inds, processor.k
+                    initial_pred[pairs[:, 0]] + mus[i - 1], potential_neighbor_inds, processor.k
                 )
 
-        # predict final mu with final denoising network
-        pred_diffs = self.decoder(
+        # Denoise the first latent to predict final mu
+        pred_diffs = self.processors[0](
             latents[0], pred_ind, encodings_for_ddpm=zs, neighbor_inds=neighbor_inds, neighbor_diffs=neighbor_diffs
         )
 
@@ -214,7 +223,7 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         re_term = (log_standard_normal(diffs - pred_diffs)).sum(dim=1)
 
         kl_term = (self._log_posterior(latents[-1], -1) - log_standard_normal(latents[-1])).sum(dim=1)
-        for i in range(self.num_steps - 1, -1, -1):
+        for i in range(self.num_steps - 2, -1, -1):
             kl_term_i = self._log_posterior(latents[i], i) - log_normal_diag(latents[i], mus[i], log_vars[i])
             kl_term = kl_term + kl_term_i.sum(dim=1)
 
@@ -228,26 +237,28 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         initial_points = super().generate(z, size, initial_pred)
         input_dim = initial_points.size(1)
 
-        # Put standard normal around paired predicted points
-        diffs = torch.randn_like(initial_points, device=self.device)
+        # Put noise around initial points
+        diffs = torch.randn_like(initial_points, device=self.device) * self.noise_vars.sqrt() + self.noise_mus
 
         # Calculate potential neighbors for GNN processor
         neighbor_inds, neighbor_diffs = None, None
         if self.gnn_processor_used:
-            processor: LocalGNNProcessor = self.decoder
+            processor: LocalGNNProcessor = self.processors[0]
             potential_neighbor_inds, potential_neighbor_diffs = self.get_gnn_potential_neighbors(
                 initial_points, pred_ind, processor
             )
             neighbor_inds = potential_neighbor_inds[:, : processor.k]
             neighbor_diffs = potential_neighbor_diffs[:, : processor.k]
 
-        # denoise movement distributions
+        # Reverse process: denoise latent steps. Remove noise first from pure noise, then from the
+        # first output and so on.
         zs = torch.cat([z[i].repeat(hits_per_batch[i], 1) for i in range(z.size(0))], dim=0)
-        for i in range(self.num_steps):
+        for i in range(self.num_steps - 1, 0, -1):
             out = self.processors[i](
                 diffs, pred_ind, encodings_for_ddpm=zs, neighbor_inds=neighbor_inds, neighbor_diffs=neighbor_diffs
             )
             mu, log_var = out[:, :input_dim], out[:, input_dim:]
+
             diffs = mu + torch.randn_like(diffs, device=self.device) * torch.exp(0.5 * log_var)
 
             if self.gnn_processor_used:
@@ -255,7 +266,7 @@ class DDPMSetGenerator(AdjustingSetGenerator):
                     initial_points + diffs, potential_neighbor_inds, processor.k
                 )
 
-        diffs = self.decoder(
+        diffs = self.processors[0](
             diffs, pred_ind, encodings_for_ddpm=zs, neighbor_inds=neighbor_inds, neighbor_diffs=neighbor_diffs
         )
 
