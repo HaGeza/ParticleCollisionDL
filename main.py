@@ -8,6 +8,7 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import CyclicLR
 from torch.multiprocessing import set_start_method
 
+from src.Modules.HitSetProcessor import HitSetProcessorEnum
 from src.TimeStep.ForAdjusting.PlacementStrategy import EquidistantStrategy, PlacementStrategyEnum, SinusoidStrategy
 from src.Util import CoordinateSystemEnum
 from src.TimeStep import TimeStepEnum
@@ -45,6 +46,7 @@ def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace
     encoder = HitSetEncoderEnum(args.encoder)
     size_generator = HitSetSizeGeneratorEnum(args.size_generator)
     set_generator = HitSetGeneratorEnum(args.set_generator)
+    ddpm_processor = HitSetProcessorEnum(args.ddpm_processor)
 
     # Convert other arguments
     epochs = int(args.epochs)
@@ -101,6 +103,8 @@ def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace
         coordinate_system,
         use_shell_part_sizes,
         device=device,
+        ddpm_processor=ddpm_processor,
+        ddpm_num_steps=int(args.ddpm_num_steps),
     )
 
     # Initialize optimizer
@@ -170,7 +174,7 @@ if __name__ == "__main__":
         default=None,
         help="minimum learning rate for training; if not specified, equal to lr",
     )
-    ap.add_argument("--size_loss_weight", default=0.01, help="weight for the size loss")
+    ap.add_argument("--size_loss_weight", default=Trainer.DEFAULT_SIZE_LOSS_W, help="weight for the size loss")
     ap.add_argument("-r", "--random_seed", default=42, help="random seed")
     ap.add_argument(
         "--coordinate_system",
@@ -221,6 +225,13 @@ if __name__ == "__main__":
         help="type of hit set generator to use",
         choices=[e.value for e in HitSetGeneratorEnum],
     )
+    ap.add_argument(
+        "--ddpm_processor",
+        default=HitSetProcessorEnum.POINT_NET.value,
+        help="type of hit set processor to use for DDPM for denoising",
+        choices=[e.value for e in HitSetProcessorEnum],
+    )
+    ap.add_argument("--ddpm_num_steps", default=100, help="number of steps in the DDPM diffusion process")
 
     args = ap.parse_args()
 

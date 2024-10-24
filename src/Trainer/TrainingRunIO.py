@@ -233,7 +233,7 @@ class TrainingRunIO:
 
         with open(self.eval_log, "a") as f:
             row = [epoch, loss_mean]
-            for metric_values in zip(mse_train, hd_train, mse_val, hd_val):
+            for metric_values in zip(mse_train, mse_val, hd_train, hd_val):
                 row += list(metric_values)
             csv.writer(f).writerow(row)
 

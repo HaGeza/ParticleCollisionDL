@@ -1,11 +1,10 @@
 import torch
 from torch import nn, Tensor
-import torch.nn.functional as F
 
 from src.Modules.HitSetEncoder import HitSetEncoderEnum, GlobalPoolingEncoder
 from src.Modules.HitSetGenerator.DDPM import DDPMSetGenerator
-from src.Modules.HitSetGenerator.DDPM.BetaSchedules import CosineBetaSchedule
-from src.Modules.HitSetProcessor import PointNetProcessor
+from src.Modules.HitSetGenerator.DDPM.BetaSchedules import CosineBetaSchedule, LinearBetaSchedule
+from src.Modules.HitSetProcessor import HitSetProcessorEnum, LocalGNNProcessor, PointNetProcessor
 from src.Modules.HitSetSizeGenerator import GaussianSizeGenerator, HitSetSizeGeneratorEnum
 from src.Modules.HitSetGenerator import AdjustingSetGenerator, HitSetGeneratorEnum
 from src.Pairing import PairingStrategyEnum
@@ -23,6 +22,11 @@ class HitSetGenerativeModel(nn.Module):
        At training time it may also optionally make use of the ground-truth point-cloud at the next time-step.
     """
 
+    DDPM_PROCESSOR = "ddpm_processor"
+    DDPM_NUM_STEPS = "ddpm_num_steps"
+    DDPM_DEFAULT_PROCESSOR = HitSetProcessorEnum.POINT_NET
+    DDPM_DEFUALT_NUM_STEPS = 100
+
     def __init__(
         self,
         encoder_type: HitSetEncoderEnum,
@@ -35,6 +39,7 @@ class HitSetGenerativeModel(nn.Module):
         input_dim: int = 3,
         encoding_dim: int = 16,
         device: str = "cpu",
+        **kwargs,
     ):
         """
         :param HitSetEncoderEnum encoder_type: Type of encoder to use.
@@ -48,6 +53,9 @@ class HitSetGenerativeModel(nn.Module):
         :param int input_dim: Dimension of the input hits.
         :param int encoding_dim: Dimension of the encoded hits.
         :param str device: Device to run the model on.
+        :param kwargs: Additional arguments:
+        - `ddpm_processor`: HitSetProcessorEnum. Processor to use in the denoising step of DDPM.
+        - `ddpm_num_steps`: int. Number of steps in the diffusion process for DDPM.
         """
 
         super().__init__()
@@ -70,13 +78,32 @@ class HitSetGenerativeModel(nn.Module):
             "using_shell_part_sizes": use_shell_part_sizes,
         }
 
+        if set_generator_type == HitSetGeneratorEnum.DDPM:
+            self.information["ddpm"] = {
+                "num_steps": kwargs.get(self.DDPM_NUM_STEPS, self.DDPM_DEFUALT_NUM_STEPS),
+                "processor": kwargs.get(self.DDPM_PROCESSOR, self.DDPM_DEFAULT_PROCESSOR).value,
+            }
+
         self.encoders = nn.ModuleList()
         self.size_generators = nn.ModuleList()
         self.set_generators = nn.ModuleList()
 
+        self.min_size_to_generate = 0
+        self.max_batch_size_to_generate = 50000
+
+        if coordinate_system == CoordinateSystemEnum.CARTESIAN:
+            input_channels = [0, 1, 2]
+        else:  # if coordinate_system == CoordinateSystemEnum.CYLINDRICAL:
+            input_channels = [0, 2]
+
         for t in range(time_step.get_num_time_steps() - 1):
             if encoder_type == HitSetEncoderEnum.POINT_NET:
-                processor = PointNetProcessor(device=device)
+                processor = PointNetProcessor(input_channels=input_channels, device=device)
+                self.encoders.append(GlobalPoolingEncoder(processor, device=device))
+            elif encoder_type == HitSetEncoderEnum.LOCAL_GNN:
+                k = 5
+                self.min_size_to_generate = max(self.min_size_to_generate, k + 1)
+                processor = LocalGNNProcessor(coordinate_system, k=k, input_channels=input_channels, device=device)
                 self.encoders.append(GlobalPoolingEncoder(processor, device=device))
 
             num_sizes = 1 if not use_shell_part_sizes else time_step.get_num_shell_parts(t + 1)
@@ -90,13 +117,40 @@ class HitSetGenerativeModel(nn.Module):
             elif set_generator_type == HitSetGeneratorEnum.NONE:
                 self.set_generators.append(None)
             elif set_generator_type == HitSetGeneratorEnum.DDPM:
-                num_steps = 100
-                beta_schedule = CosineBetaSchedule(offset=0.002, num_steps=num_steps)
-                denoising_processors = [
-                    PointNetProcessor(input_dim=encoding_dim + input_dim, hidden_dim=2 * input_dim, device=device)
-                    for _ in range(num_steps)
-                ]
-                decoder = PointNetProcessor(input_dim=encoding_dim + input_dim, hidden_dim=input_dim, device=device)
+                num_steps = kwargs.get(self.DDPM_NUM_STEPS, self.DDPM_DEFUALT_NUM_STEPS)
+                beta_schedule = CosineBetaSchedule(offset=0.0001, num_steps=num_steps)
+                # beta_schedule = LinearBetaSchedule(beta_start=0.01, beta_end=0.9, num_steps=num_steps)
+
+                processor = kwargs.get(self.DDPM_PROCESSOR, self.DDPM_DEFAULT_PROCESSOR)
+
+                gnn_processor_used = False
+                if processor == HitSetProcessorEnum.POINT_NET:
+                    denoising_processors = [
+                        PointNetProcessor(
+                            input_dim=input_dim,
+                            extra_input_dim=encoding_dim,
+                            output_dim=input_dim * mult,
+                            device=device,
+                        )
+                        for mult in [1] + ([2] * (num_steps - 1))
+                    ]
+                else:  # if processor == HitSetEncoderEnum.LOCAL_GNN
+                    k = 3
+                    gnn_processor_used = True
+                    self.min_size_to_generate = max(self.min_size_to_generate, k + 1)
+
+                    denoising_processors = [
+                        LocalGNNProcessor(
+                            coordinate_system,
+                            k=k,
+                            input_dim=input_dim,
+                            extra_input_dim=encoding_dim,
+                            output_dim=input_dim * mult,
+                            num_layers=2,
+                            device=device,
+                        )
+                        for mult in [1] + ([2] * (num_steps - 1))
+                    ]
 
                 self.set_generators.append(
                     DDPMSetGenerator(
@@ -107,7 +161,7 @@ class HitSetGenerativeModel(nn.Module):
                         num_steps,
                         beta_schedule,
                         denoising_processors,
-                        decoder,
+                        gnn_processor_used,
                         device=device,
                     )
                 )
@@ -143,12 +197,12 @@ class HitSetGenerativeModel(nn.Module):
 
         z = self.encoders[t - 1](x, x_ind, gt_size.size(0))
         pred_size = self.size_generators[t - 1](z, gt, gt_ind)
-        size_loss = F.mse_loss(pred_size, gt_size)
+        size_loss = self.size_generators[t - 1].calc_loss(pred_size, gt_size)
 
         if self.set_generators[t - 1] is not None:
             # Use the ground truth sizes (rounded to integers) for set generation
             with torch.no_grad():
-                used_size = torch.clamp(gt_size, min=0.0).round().int()
+                used_size = torch.clamp(gt_size.round().int(), min=self.min_size_to_generate)
 
             # Calculate the indices for the pairing strategy
             flat_size = used_size if used_size.dim() == 1 else used_size.sum(dim=1)
@@ -162,7 +216,7 @@ class HitSetGenerativeModel(nn.Module):
 
     def generate(
         self, x: Tensor, x_ind: Tensor, t: int, initial_pred: Tensor = torch.tensor([]), batch_size: int = 0
-    ) -> tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor, Tensor]:
         """
         Generate the hit set at time t+1 given the hit set at time t.
 
@@ -173,15 +227,24 @@ class HitSetGenerativeModel(nn.Module):
             Shape `[num_hits_next, hit_dim]` or empty tensor if no initial prediction is available.
         :param int batch_size: Batch size to use for the set generation. If 0, try to determine the batch size
             from `x_ind`.
-        :return tuple[Tensor, Tensor]: Tuple containing the generated hit set size and the generated hit set.
-            If self.set_generators[t - 1] is None, the hit set is an empty tensor.
+        :return tuple[Tensor, Tensor, Tensor]: Tuple containing the generated hit set size, the generated hit set
+            and the hit set size used for generation. If self.set_generators[t - 1] is None,
+            the hit set is an empty tensor.
         """
 
         z = self.encoders[t - 1](x, x_ind, batch_size)
         size = self.size_generators[t - 1].generate(z)
+
+        used_size = torch.clamp(size.round().int(), min=self.min_size_to_generate)
+        for b in range(used_size.size(0)):
+            batch_item_size = used_size[b].sum().item()
+            if batch_item_size > self.max_batch_size_to_generate:
+                used_size[b] = used_size[b].float() / batch_item_size * self.max_batch_size_to_generate
+                used_size[b] = torch.clamp(used_size[b].round().int(), min=self.min_size_to_generate)
+
         hits = (
-            self.set_generators[t - 1].generate(z, size.round().int().clamp(min=0), initial_pred)
+            self.set_generators[t - 1].generate(z, used_size, initial_pred)
             if self.set_generators[t - 1] is not None
             else torch.tensor([], device=self.device)
         )
-        return size, hits
+        return size, hits, used_size

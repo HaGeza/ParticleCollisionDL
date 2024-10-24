@@ -60,9 +60,9 @@ class IPairingStrategy:
         :param Tensor gt_part_ind: Ground truth hit part index tensor. `None` or tensor with shape `[num_hits_next]`.
         :param bool paired: Whether the pairing is precomputed
         :return tuple[Tensor, Tensor]: A tuple containing two Tensors:
-            1. Pairing tensor. Shape `[sum(min(num_hits_batch_i, num_hits_next_batch_i)), 2]`
-            2. Number of pairs per batch or per batch-part combination. Shape `[num_batches]`
-                or `[num_batches * num_parts]`.
+        1. Pairing tensor. Shape `[sum(min(num_hits_batch_i, num_hits_next_batch_i)), 2]`
+        2. Number of pairs per batch or per batch-part combination. Shape `[num_batches]`
+            or `[num_batches * num_parts]`.
         """
 
         if paired:

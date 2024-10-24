@@ -78,3 +78,6 @@ class GaussianSizeGenerator(IHitSetSizeGenerator):
 
         samples = mus + torch.exp(0.5 * log_vars) * torch.randn_like(log_vars, device=self.device)
         return samples * self.size_scaler
+
+    def calc_loss(self, pred_size: Tensor, gt_size: Tensor) -> Tensor:
+        return F.mse_loss(pred_size / self.size_scaler, gt_size / self.size_scaler)
