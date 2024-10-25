@@ -3,13 +3,14 @@ from torch import nn, Tensor
 
 from src.Modules.HitSetEncoder import HitSetEncoderEnum, GlobalPoolingEncoder
 from src.Modules.HitSetGenerator.DDPM import DDPMSetGenerator
-from src.Modules.HitSetGenerator.DDPM.BetaSchedules import CosineBetaSchedule, LinearBetaSchedule
+from src.Modules.HitSetGenerator.DDPM.BetaSchedules import CosineBetaSchedule
 from src.Modules.HitSetProcessor import HitSetProcessorEnum, LocalGNNProcessor, PointNetProcessor
 from src.Modules.HitSetSizeGenerator import GaussianSizeGenerator, HitSetSizeGeneratorEnum
 from src.Modules.HitSetGenerator import AdjustingSetGenerator, HitSetGeneratorEnum
 from src.Pairing import PairingStrategyEnum
 from src.TimeStep import ITimeStep
 from src.Util import CoordinateSystemEnum
+from src.Util.CoordinateSystemFuncs import normalize_theta
 
 
 class HitSetGenerativeModel(nn.Module):
@@ -24,8 +25,10 @@ class HitSetGenerativeModel(nn.Module):
 
     DDPM_PROCESSOR = "ddpm_processor"
     DDPM_NUM_STEPS = "ddpm_num_steps"
+    DDPM_PROCESSOR_LAYERS = "ddpm_processor_layers"
     DDPM_DEFAULT_PROCESSOR = HitSetProcessorEnum.POINT_NET
     DDPM_DEFUALT_NUM_STEPS = 100
+    DDPM_DEFAULT_PROCESSOR_LAYERS = 2
 
     def __init__(
         self,
@@ -56,6 +59,7 @@ class HitSetGenerativeModel(nn.Module):
         :param kwargs: Additional arguments:
         - `ddpm_processor`: HitSetProcessorEnum. Processor to use in the denoising step of DDPM.
         - `ddpm_num_steps`: int. Number of steps in the diffusion process for DDPM.
+        - `ddpm_processor_layers`: int. Number of layers in each processor for DDPM.
         """
 
         super().__init__()
@@ -118,10 +122,12 @@ class HitSetGenerativeModel(nn.Module):
                 self.set_generators.append(None)
             elif set_generator_type == HitSetGeneratorEnum.DDPM:
                 num_steps = kwargs.get(self.DDPM_NUM_STEPS, self.DDPM_DEFUALT_NUM_STEPS)
-                beta_schedule = CosineBetaSchedule(offset=0.0001, num_steps=num_steps)
+
+                beta_schedule = CosineBetaSchedule(offset=0.001, num_steps=num_steps)
                 # beta_schedule = LinearBetaSchedule(beta_start=0.01, beta_end=0.9, num_steps=num_steps)
 
                 processor = kwargs.get(self.DDPM_PROCESSOR, self.DDPM_DEFAULT_PROCESSOR)
+                num_layers = kwargs.get(self.DDPM_PROCESSOR_LAYERS, self.DDPM_DEFAULT_PROCESSOR_LAYERS)
 
                 gnn_processor_used = False
                 if processor == HitSetProcessorEnum.POINT_NET:
@@ -129,10 +135,11 @@ class HitSetGenerativeModel(nn.Module):
                         PointNetProcessor(
                             input_dim=input_dim,
                             extra_input_dim=encoding_dim,
-                            output_dim=input_dim * mult,
+                            output_dim=input_dim * 2,
+                            num_layers=num_layers,
                             device=device,
                         )
-                        for mult in [1] + ([2] * (num_steps - 1))
+                        for _ in range(num_steps)
                     ]
                 else:  # if processor == HitSetEncoderEnum.LOCAL_GNN
                     k = 3
@@ -145,11 +152,11 @@ class HitSetGenerativeModel(nn.Module):
                             k=k,
                             input_dim=input_dim,
                             extra_input_dim=encoding_dim,
-                            output_dim=input_dim * mult,
-                            num_layers=2,
+                            output_dim=input_dim * 2,
+                            num_layers=num_layers,
                             device=device,
                         )
-                        for mult in [1] + ([2] * (num_steps - 1))
+                        for _ in range(num_steps)
                     ]
 
                 self.set_generators.append(
@@ -195,8 +202,12 @@ class HitSetGenerativeModel(nn.Module):
             hit set size, the generated hit set, the size loss and the set loss.
         """
 
-        z = self.encoders[t - 1](x, x_ind, gt_size.size(0))
-        pred_size = self.size_generators[t - 1](z, gt, gt_ind)
+        x_, gt_, initial_pred_ = x, gt, initial_pred
+        if self.coordinate_system == CoordinateSystemEnum.CYLINDRICAL:
+            x_, gt_, initial_pred_ = normalize_theta(x), normalize_theta(gt), normalize_theta(initial_pred)
+
+        z = self.encoders[t - 1](x_, x_ind, gt_size.size(0))
+        pred_size = self.size_generators[t - 1](z, gt_, gt_ind)
         size_loss = self.size_generators[t - 1].calc_loss(pred_size, gt_size)
 
         if self.set_generators[t - 1] is not None:
@@ -208,7 +219,7 @@ class HitSetGenerativeModel(nn.Module):
             flat_size = used_size if used_size.dim() == 1 else used_size.sum(dim=1)
             pred_ind = torch.repeat_interleave(torch.arange(len(flat_size), device=self.device), flat_size)
 
-            pred_hits, set_loss = self.set_generators[t - 1](z, gt, pred_ind, gt_ind, used_size, initial_pred)
+            pred_hits, set_loss = self.set_generators[t - 1](z, gt_, pred_ind, gt_ind, used_size, initial_pred_)
         else:
             pred_hits, set_loss = torch.tensor([]), torch.tensor(0.0, device=self.device)
 
@@ -232,7 +243,9 @@ class HitSetGenerativeModel(nn.Module):
             the hit set is an empty tensor.
         """
 
-        z = self.encoders[t - 1](x, x_ind, batch_size)
+        x_ = normalize_theta(x) if self.coordinate_system == CoordinateSystemEnum.CYLINDRICAL else x
+
+        z = self.encoders[t - 1](x_, x_ind, batch_size)
         size = self.size_generators[t - 1].generate(z)
 
         used_size = torch.clamp(size.round().int(), min=self.min_size_to_generate)
@@ -247,4 +260,5 @@ class HitSetGenerativeModel(nn.Module):
             if self.set_generators[t - 1] is not None
             else torch.tensor([], device=self.device)
         )
+
         return size, hits, used_size

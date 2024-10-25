@@ -47,14 +47,12 @@ class DDPMSetGenerator(AdjustingSetGenerator):
             device,
         )
 
+        assert num_steps > 0, "Number of denoising steps must be greater than 0"
+
         self.num_steps = num_steps
         self.betas = torch.tensor(beta_schedule.get_betas())
         self.processors = nn.ModuleList(denoising_processors)
         self.gnn_processor_used = gnn_processor_used
-
-        output_dim = self.processors[0].output_dim
-        self.noise_mus = torch.tensor([0] * output_dim, device=self.device, dtype=torch.float32)
-        self.noise_vars = torch.tensor([1] * output_dim, device=self.device, dtype=torch.float32)
 
     def _add_noise(self, x: Tensor, step: int) -> Tensor:
         """
@@ -65,7 +63,7 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         :return Tensor: Noisy tensor. Shape `[encoding_dim]`
         """
 
-        return torch.sqrt(1.0 - self.betas[step]) * x + torch.sqrt(self.betas[step]) * torch.rand_like(x)
+        return torch.sqrt(1.0 - self.betas[step]) * x + torch.sqrt(self.betas[step]) * torch.randn_like(x)
 
     def _log_posterior(self, latent: Tensor, beta_ind: int) -> Tensor:
         """
@@ -147,7 +145,9 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         row_inds = torch.arange(topk_inds.size(0), device=topk_inds.device).unsqueeze(1).expand_as(topk_inds)
         topk_inds = potential_neighbor_inds[row_inds, topk_inds]
 
-        topk_diffs = get_coord_differences(x, x[topk_inds].transpose(0, 1), self.coordinate_system)
+        topk_diffs = get_coord_differences(
+            x, x[topk_inds].transpose(0, 1), self.coordinate_system, theta_normalized=True
+        )
         topk_diffs = topk_diffs.transpose(0, 1)
 
         return topk_inds, topk_diffs
@@ -164,13 +164,15 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         paired = initial_pred.size(0) > 0
         initial_pred = super().generate(z, size, initial_pred)
 
-        initial_pred_cart = convert_to_cartesian(initial_pred, self.coordinate_system)
-        gt_cart = convert_to_cartesian(gt, self.coordinate_system)
+        initial_pred_cart = convert_to_cartesian(initial_pred, self.coordinate_system, theta_normalized=True)
+        gt_cart = convert_to_cartesian(gt, self.coordinate_system, theta_normalized=True)
 
         pairs, num_pairs_per_batch = self.pairing_strategy.create_pairs(
             initial_pred_cart, gt_cart, pred_ind, gt_ind, paired=paired
         )
-        diffs = get_coord_differences(gt[pairs[:, 1]], initial_pred[pairs[:, 0]], self.coordinate_system)
+        diffs = get_coord_differences(
+            gt[pairs[:, 1]], initial_pred[pairs[:, 0]], self.coordinate_system, theta_normalized=True
+        )
         input_dim = initial_pred.size(1)
 
         # Forward process: create noisy steps. The first latent is the least noisy,
@@ -193,11 +195,6 @@ class DDPMSetGenerator(AdjustingSetGenerator):
             neighbor_inds = potential_neighbor_inds[:, : processor.k]
             neighbor_diffs = potential_neighbor_diffs[:, : processor.k]
 
-        # Adjust final latent distribution
-        with torch.no_grad():
-            self.noise_mus = self.noise_mus * 0.9 + latents[-1].mean(dim=0) * 0.1
-            self.noise_vars = self.noise_vars * 0.9 + latents[-1].var(dim=0) * 0.1
-
         # Reverse process: denoise latent steps. Remove noise from the last latent to the first latent.
         for i in range(self.num_steps - 1, 0, -1):
             out = self.processors[i](
@@ -214,18 +211,25 @@ class DDPMSetGenerator(AdjustingSetGenerator):
                     initial_pred[pairs[:, 0]] + mus[i - 1], potential_neighbor_inds, processor.k
                 )
 
-        # Denoise the first latent to predict final mu
-        pred_diffs = self.processors[0](
+        # Denoise the first latent to predict the noise added in the first step
+        out = self.processors[0](
             latents[0], pred_ind, encodings_for_ddpm=zs, neighbor_inds=neighbor_inds, neighbor_diffs=neighbor_diffs
         )
+        mu, log_var = out[:, :input_dim], out[:, input_dim:]
+        pred_diffs = latents[0] - mu
 
         # calculate ELBO
         re_term = (log_standard_normal(diffs - pred_diffs)).sum(dim=1)
 
         kl_term = (self._log_posterior(latents[-1], -1) - log_standard_normal(latents[-1])).sum(dim=1)
         for i in range(self.num_steps - 2, -1, -1):
-            kl_term_i = self._log_posterior(latents[i], i) - log_normal_diag(latents[i], mus[i], log_vars[i])
+            added_noise = latents[i + 1] - latents[i]
+            kl_term_i = self._log_posterior(added_noise, i) - log_normal_diag(added_noise, mus[i], log_vars[i])
             kl_term = kl_term + kl_term_i.sum(dim=1)
+
+        added_noise = latents[0] - diffs
+        first_kl_term = self._log_posterior(added_noise, 0) - log_normal_diag(added_noise, mu, log_var)
+        kl_term = kl_term + first_kl_term.sum(dim=1)
 
         loss = -(re_term - kl_term).mean()
 
@@ -238,7 +242,7 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         input_dim = initial_points.size(1)
 
         # Put noise around initial points
-        diffs = torch.randn_like(initial_points, device=self.device) * self.noise_vars.sqrt() + self.noise_mus
+        diffs = torch.randn_like(initial_points, device=self.device)
 
         # Calculate potential neighbors for GNN processor
         neighbor_inds, neighbor_diffs = None, None
@@ -259,16 +263,18 @@ class DDPMSetGenerator(AdjustingSetGenerator):
             )
             mu, log_var = out[:, :input_dim], out[:, input_dim:]
 
-            diffs = mu + torch.randn_like(diffs, device=self.device) * torch.exp(0.5 * log_var)
+            added_noise = mu + torch.randn_like(diffs, device=self.device) * torch.exp(0.5 * log_var)
+            diffs = diffs - added_noise
 
             if self.gnn_processor_used:
                 neighbor_inds, neighbor_diffs = self.pick_k_nearest(
                     initial_points + diffs, potential_neighbor_inds, processor.k
                 )
 
-        diffs = self.processors[0](
+        added_noise = self.processors[0](
             diffs, pred_ind, encodings_for_ddpm=zs, neighbor_inds=neighbor_inds, neighbor_diffs=neighbor_diffs
         )
+        diffs = diffs - added_noise
 
         # move points according to sample from denoised movement distributions
         return initial_points + diffs

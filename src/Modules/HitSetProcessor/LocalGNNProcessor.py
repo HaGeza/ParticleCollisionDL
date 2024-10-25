@@ -56,16 +56,16 @@ class LocalGNNProcessor(IHitSetProcessor):
         self.activation = activation
         self.device = device
 
-        def get_linear_layer_dim(in_dim: int):
-            return in_dim * (k + 1) + k * 3 + self.extra_input_dim
+        def get_linear_layer_dim(in_dim: int, extra_input: bool = False) -> int:
+            return in_dim * (k + 1) + k * 3 + self.extra_input_dim * extra_input
 
         if num_layers > 1:
-            self.layers.append(nn.Linear(get_linear_layer_dim(self.input_dim), hidden_dim, device=device))
+            self.layers.append(nn.Linear(get_linear_layer_dim(self.input_dim, True), hidden_dim, device=device))
             for _ in range(num_layers - 2):
                 self.layers.append(nn.Linear(get_linear_layer_dim(hidden_dim), hidden_dim, device=device))
             self.layers.append(nn.Linear(get_linear_layer_dim(hidden_dim), self.output_dim, device=device))
         elif num_layers == 1:
-            self.layers.append(nn.Linear(get_linear_layer_dim(self.input_dim), self.output_dim, device=device))
+            self.layers.append(nn.Linear(get_linear_layer_dim(self.input_dim, True), self.output_dim, device=device))
         else:
             raise ValueError("Number of layers must be at least 1")
 
@@ -74,7 +74,7 @@ class LocalGNNProcessor(IHitSetProcessor):
         x: Tensor,
         neighbor_inds: Tensor,
         neighbor_diffs: Tensor,
-        encodings: Tensor | None,
+        encodings: Tensor | None = None,
         channels: list[int] = None,
     ) -> Tensor:
         """
@@ -119,7 +119,7 @@ class LocalGNNProcessor(IHitSetProcessor):
         """
 
         k = k if k > 0 else self.k
-        x_cart = convert_to_cartesian(x, self.input_coord_system)
+        x_cart = convert_to_cartesian(x, self.input_coord_system, theta_normalized=True)
 
         c_start = 0
         cdist_chunks = x.shape[0] // self.cdist_chunk_max_size + 1
@@ -137,7 +137,7 @@ class LocalGNNProcessor(IHitSetProcessor):
                 neighbor_inds = torch.cat([neighbor_inds, topk_inds], dim=0)
 
             diffs = get_coord_differences(
-                x[c_start:c_end], x[topk_inds].transpose(0, 1), self.input_coord_system
+                x[c_start:c_end], x[topk_inds].transpose(0, 1), self.input_coord_system, theta_normalized=True
             ).transpose(0, 1)
             neighbor_diffs = torch.cat([neighbor_diffs, diffs], dim=0)
 
@@ -187,5 +187,5 @@ class LocalGNNProcessor(IHitSetProcessor):
         x = self._create_local_graph_tensor(x, neighbor_inds, neighbor_diffs, encodings, self.input_channels)
         for layer in self.layers[:-1]:
             x = self.activation(layer(x))
-            x = self._create_local_graph_tensor(x, neighbor_inds, neighbor_diffs, encodings)
+            x = self._create_local_graph_tensor(x, neighbor_inds, neighbor_diffs)
         return self.layers[-1](x)

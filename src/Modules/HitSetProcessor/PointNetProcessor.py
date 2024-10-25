@@ -49,8 +49,8 @@ class PointNetProcessor(IHitSetProcessor):
         if num_layers > 1:
             self.layers.append(nn.Linear(self.input_dim + extra_input_dim, hidden_dim, device=device))
             for _ in range(num_layers - 2):
-                self.layers.append(nn.Linear(hidden_dim + extra_input_dim, hidden_dim, device=device))
-            self.layers.append(nn.Linear(hidden_dim + extra_input_dim, self.output_dim, device=device))
+                self.layers.append(nn.Linear(hidden_dim, hidden_dim, device=device))
+            self.layers.append(nn.Linear(hidden_dim, self.output_dim, device=device))
         elif num_layers == 1:
             self.layers.append(nn.Linear(self.input_dim + extra_input_dim, self.output_dim, device=device))
         else:
@@ -73,6 +73,6 @@ class PointNetProcessor(IHitSetProcessor):
 
         for layer in self.layers[:-1]:
             x = self.activation(layer(x))
-            if encodings is not None:
-                x = torch.cat([x, encodings], dim=1)
+            # if encodings is not None:
+            #     x = torch.cat([x, encodings], dim=1)
         return self.layers[-1](x)

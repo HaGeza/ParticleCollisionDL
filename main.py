@@ -105,6 +105,7 @@ def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace
         device=device,
         ddpm_processor=ddpm_processor,
         ddpm_num_steps=int(args.ddpm_num_steps),
+        ddpm_processor_layers=int(args.ddpm_processor_layers),
     )
 
     # Initialize optimizer
@@ -230,6 +231,11 @@ if __name__ == "__main__":
         default=HitSetProcessorEnum.POINT_NET.value,
         help="type of hit set processor to use for DDPM for denoising",
         choices=[e.value for e in HitSetProcessorEnum],
+    )
+    ap.add_argument(
+        "--ddpm_processor_layers",
+        default=HitSetGenerativeModel.DDPM_DEFAULT_PROCESSOR_LAYERS,
+        help="number of layers in each processor for DDPM for denoising",
     )
     ap.add_argument("--ddpm_num_steps", default=100, help="number of steps in the DDPM diffusion process")
 
