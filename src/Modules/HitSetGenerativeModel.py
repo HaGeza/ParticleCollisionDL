@@ -135,11 +135,11 @@ class HitSetGenerativeModel(nn.Module):
                         PointNetProcessor(
                             input_dim=input_dim,
                             extra_input_dim=encoding_dim,
-                            output_dim=input_dim * 2,
+                            output_dim=input_dim * mult,
                             num_layers=num_layers,
                             device=device,
                         )
-                        for _ in range(num_steps)
+                        for mult in [1] + [2] * (num_steps - 1)
                     ]
                 else:  # if processor == HitSetEncoderEnum.LOCAL_GNN
                     k = 3
@@ -152,11 +152,11 @@ class HitSetGenerativeModel(nn.Module):
                             k=k,
                             input_dim=input_dim,
                             extra_input_dim=encoding_dim,
-                            output_dim=input_dim * 2,
+                            output_dim=input_dim * mult,
                             num_layers=num_layers,
                             device=device,
                         )
-                        for _ in range(num_steps)
+                        for mult in [1] + [2] * (num_steps - 1)
                     ]
 
                 self.set_generators.append(

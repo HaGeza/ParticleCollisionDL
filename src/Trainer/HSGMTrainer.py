@@ -3,7 +3,6 @@ from tqdm import tqdm, trange
 from scipy.spatial.distance import directed_hausdorff
 import torch
 from torch import Tensor
-from torch.nn import functional as F
 from torch.optim import lr_scheduler, Optimizer
 
 from src.Data import IDataLoader

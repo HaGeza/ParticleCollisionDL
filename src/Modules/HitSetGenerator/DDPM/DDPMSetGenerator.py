@@ -212,24 +212,17 @@ class DDPMSetGenerator(AdjustingSetGenerator):
                 )
 
         # Denoise the first latent to predict the noise added in the first step
-        out = self.processors[0](
+        pred_diffs = self.processors[0](
             latents[0], pred_ind, encodings_for_ddpm=zs, neighbor_inds=neighbor_inds, neighbor_diffs=neighbor_diffs
-        )
-        mu, log_var = out[:, :input_dim], out[:, input_dim:]
-        pred_diffs = latents[0] - mu
+        )[:, :input_dim]
 
         # calculate ELBO
         re_term = (log_standard_normal(diffs - pred_diffs)).sum(dim=1)
 
         kl_term = (self._log_posterior(latents[-1], -1) - log_standard_normal(latents[-1])).sum(dim=1)
         for i in range(self.num_steps - 2, -1, -1):
-            added_noise = latents[i + 1] - latents[i]
-            kl_term_i = self._log_posterior(added_noise, i) - log_normal_diag(added_noise, mus[i], log_vars[i])
+            kl_term_i = self._log_posterior(latents[i], i) - log_normal_diag(latents[i], mus[i], log_vars[i])
             kl_term = kl_term + kl_term_i.sum(dim=1)
-
-        added_noise = latents[0] - diffs
-        first_kl_term = self._log_posterior(added_noise, 0) - log_normal_diag(added_noise, mu, log_var)
-        kl_term = kl_term + first_kl_term.sum(dim=1)
 
         loss = -(re_term - kl_term).mean()
 
@@ -262,19 +255,16 @@ class DDPMSetGenerator(AdjustingSetGenerator):
                 diffs, pred_ind, encodings_for_ddpm=zs, neighbor_inds=neighbor_inds, neighbor_diffs=neighbor_diffs
             )
             mu, log_var = out[:, :input_dim], out[:, input_dim:]
-
-            added_noise = mu + torch.randn_like(diffs, device=self.device) * torch.exp(0.5 * log_var)
-            diffs = diffs - added_noise
+            diffs = mu + torch.randn_like(diffs, device=self.device) * torch.exp(0.5 * log_var)
 
             if self.gnn_processor_used:
                 neighbor_inds, neighbor_diffs = self.pick_k_nearest(
                     initial_points + diffs, potential_neighbor_inds, processor.k
                 )
 
-        added_noise = self.processors[0](
+        diffs = self.processors[i](
             diffs, pred_ind, encodings_for_ddpm=zs, neighbor_inds=neighbor_inds, neighbor_diffs=neighbor_diffs
-        )
-        diffs = diffs - added_noise
+        )[:, :input_dim]
 
         # move points according to sample from denoised movement distributions
         return initial_points + diffs
