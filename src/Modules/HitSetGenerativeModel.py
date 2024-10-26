@@ -23,6 +23,7 @@ class HitSetGenerativeModel(nn.Module):
        At training time it may also optionally make use of the ground-truth point-cloud at the next time-step.
     """
 
+    VARIATIONAL_ENCODER = "variational_encoder"
     POOLING_LEVELS = "pooling_levels"
     DDPM_PROCESSOR = "ddpm_processor"
     DDPM_NUM_STEPS = "ddpm_num_steps"
@@ -60,6 +61,7 @@ class HitSetGenerativeModel(nn.Module):
         :param int encoding_dim: Dimension of the encoded hits.
         :param str device: Device to run the model on.
         :param kwargs: Additional arguments:
+        - `variational_encoder`: bool. Whether to use a variational encoder.
         - `pooling_levels`: int. Number of levels to use in the global pooling encoder.
         - `ddpm_processor`: HitSetProcessorEnum. Processor to use in the denoising step of DDPM.
         - `ddpm_num_steps`: int. Number of steps in the diffusion process for DDPM.
@@ -106,20 +108,35 @@ class HitSetGenerativeModel(nn.Module):
 
         for t in range(time_step.get_num_time_steps() - 1):
             if encoder_type in [HitSetEncoderEnum.POINT_NET, HitSetEncoderEnum.LOCAL_GNN]:
+                variational_encoder = kwargs.get(self.VARIATIONAL_ENCODER, False)
+                encoder_out_dim = encoding_dim * 2 if variational_encoder else encoding_dim
+
                 if encoder_type == HitSetEncoderEnum.POINT_NET:
                     processor = PointNetProcessor(
-                        input_channels=input_channels, hidden_dim=encoding_dim, device=device
+                        input_channels=input_channels,
+                        hidden_dim=encoding_dim,
+                        output_dim=encoder_out_dim,
+                        device=device,
                     )
                 else:  # encoder_type == HitSetEncoderEnum.LOCAL_GNN
                     k = 5
                     self.min_size_to_generate = max(self.min_size_to_generate, k + 1)
                     processor = LocalGNNProcessor(
-                        coordinate_system, k=k, input_channels=input_channels, hidden_dim=encoding_dim, device=device
+                        coordinate_system,
+                        k=k,
+                        input_channels=input_channels,
+                        hidden_dim=encoding_dim,
+                        output_dim=encoder_out_dim,
+                        device=device,
                     )
 
                 pooling_levels = kwargs.get(self.POOLING_LEVELS, self.DEFAULT_POOLING_LEVELS)
                 self.encoding_dim = encoding_dim * pooling_levels
-                self.encoders.append(GlobalPoolingEncoder(processor, num_levels=pooling_levels, device=device))
+                self.encoders.append(
+                    GlobalPoolingEncoder(
+                        processor, num_levels=pooling_levels, variational=variational_encoder, device=device
+                    )
+                )
 
             num_sizes = 1 if not use_shell_part_sizes else time_step.get_num_shell_parts(t + 1)
             if size_generator_type == HitSetSizeGeneratorEnum.GAUSSIAN:
@@ -195,7 +212,7 @@ class HitSetGenerativeModel(nn.Module):
         gt_size: Tensor,
         t: int,
         initial_pred: Tensor = torch.tensor([]),
-    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
         """
         Forward pass of the hit-set generative model.
 
@@ -211,8 +228,8 @@ class HitSetGenerativeModel(nn.Module):
         :param int t: Time step to generate the hit set for.
         :param Tensor initial_pred: Initial prediction for the hit set at time t+1.
             Shape `[num_hits_next, hit_dim]` or empty tensor if no initial prediction is available.
-        :return tuple[Tensor, Tensor, Tensor, Tensor]: Tuple containing the generated
-            hit set size, the generated hit set, the size loss and the set loss.
+        :return tuple[Tensor, Tensor, Tensor, Tensor, Tensor]: Tuple containing the generated
+            hit set size, the generated hit set, the encoder loss, the size loss and the set loss.
         """
 
         x_, gt_, initial_pred_ = x, gt, initial_pred
@@ -220,6 +237,8 @@ class HitSetGenerativeModel(nn.Module):
             x_, gt_, initial_pred_ = normalize_theta(x), normalize_theta(gt), normalize_theta(initial_pred)
 
         z = self.encoders[t - 1](x_, x_ind, gt_size.size(0))
+        encoder_loss = self.encoders[t - 1].get_loss()
+
         pred_size = self.size_generators[t - 1](z, gt_, gt_ind)
         size_loss = self.size_generators[t - 1].calc_loss(pred_size, gt_size)
 
@@ -236,7 +255,7 @@ class HitSetGenerativeModel(nn.Module):
         else:
             pred_hits, set_loss = torch.tensor([]), torch.tensor(0.0, device=self.device)
 
-        return pred_size, pred_hits, size_loss, set_loss
+        return pred_size, pred_hits, encoder_loss, size_loss, set_loss
 
     def generate(
         self, x: Tensor, x_ind: Tensor, t: int, initial_pred: Tensor = torch.tensor([]), batch_size: int = 0

@@ -17,7 +17,8 @@ class Trainer:
     Trainer class for training a `HitSetGenerativeModel`s
     """
 
-    DEFAULT_SIZE_LOSS_W = 1000
+    DEFAULT_ENCODER_LOSS_W = 0.01
+    DEFAULT_SIZE_LOSS_W = 1000.0
 
     def __init__(
         self,
@@ -28,6 +29,7 @@ class Trainer:
         run_io: TrainingRunIO,
         start_epoch: int = 0,
         epochs: int = 100,
+        encoder_loss_weight: float = DEFAULT_ENCODER_LOSS_W,
         size_loss_weight: float = DEFAULT_SIZE_LOSS_W,
         device: str = "cpu",
     ):
@@ -39,6 +41,7 @@ class Trainer:
         :param TrainingRunIO run_io: The run IO to use for logging and saving models
         :param int start_epoch: The epoch to start training from
         :param int epochs: The number of epochs to train for
+        :param float encoder_loss_weight: The weight to give to the encoder loss
         :param float size_loss_weight: The weight to give to the size loss
         :param str device: The device to use
         :param str models_path: The path to save the models
@@ -51,6 +54,7 @@ class Trainer:
         self.run_io = run_io
         self.start_epoch = start_epoch
         self.epochs = epochs
+        self.encoder_loss_weight = encoder_loss_weight
         self.size_loss_weight = size_loss_weight
         self.device = device
 
@@ -175,12 +179,14 @@ class Trainer:
 
                     self.optimizer.zero_grad()
 
-                    pred_size, _pred_tensor, size_loss, set_loss = self.model(
+                    pred_size, _pred_tensor, encoder_loss, size_loss, set_loss = self.model(
                         in_tensor, gt_tensor, in_batch_index, gt_batch_index, gt_size, t, initial_pred
                     )
 
+                    encoder_loss = encoder_loss * self.encoder_loss_weight
                     size_loss = size_loss * self.size_loss_weight
-                    loss = size_loss + set_loss
+                    loss = encoder_loss + size_loss + set_loss
+
                     loss.backward()
                     self.optimizer.step()
 

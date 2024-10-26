@@ -51,6 +51,7 @@ def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace
     # Convert other arguments
     epochs = int(args.epochs)
     batch_size = int(args.batch_size)
+    encoder_loss_weight = float(args.encoder_loss_weight)
     size_loss_weight = float(args.size_loss_weight)
     lr = float(args.lr)
     min_lr = lr if args.min_lr is None else float(args.min_lr)
@@ -103,6 +104,7 @@ def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace
         coordinate_system,
         use_shell_part_sizes,
         device=device,
+        variational_encoder=args.var_enc,
         pooling_levels=int(args.pooling_levels),
         ddpm_processor=ddpm_processor,
         ddpm_num_steps=int(args.ddpm_num_steps),
@@ -116,9 +118,11 @@ def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace
     scheduler = CyclicLR(optimizer, base_lr=min_lr, max_lr=lr, step_size_up=100)
 
     # Set up runs IO
-    run_io.setup(model, optimizer, scheduler, data_loader, epochs, size_loss_weight)
+    run_io.setup(model, optimizer, scheduler, data_loader, epochs, encoder_loss_weight, size_loss_weight)
 
-    return Trainer(model, optimizer, scheduler, data_loader, run_io, 0, epochs, size_loss_weight, device)
+    return Trainer(
+        model, optimizer, scheduler, data_loader, run_io, 0, epochs, encoder_loss_weight, size_loss_weight, device
+    )
 
 
 def initialize_trainer_from_checkpoint(run_io: TrainingRunIO, checkpoint: str, load_min_loss: bool = False) -> Trainer:
@@ -143,6 +147,7 @@ def initialize_trainer_from_checkpoint(run_io: TrainingRunIO, checkpoint: str, l
         run_io,
         checkpoint[run_io.EPOCH_FIELD],
         run_io.get_total_num_epochs(),
+        checkpoint[run_io.ENCODER_LOSS_WEIGHT_FIELD],
         checkpoint[run_io.SIZE_LOSS_WEIGHT_FIELD],
         model.device,
     )
@@ -175,6 +180,9 @@ if __name__ == "__main__":
         "--min_learning_rate",
         default=None,
         help="minimum learning rate for training; if not specified, equal to lr",
+    )
+    ap.add_argument(
+        "--encoder_loss_weight", default=Trainer.DEFAULT_ENCODER_LOSS_W, help="weight for the encoder loss"
     )
     ap.add_argument("--size_loss_weight", default=Trainer.DEFAULT_SIZE_LOSS_W, help="weight for the size loss")
     ap.add_argument("-r", "--random_seed", default=42, help="random seed")
@@ -226,6 +234,9 @@ if __name__ == "__main__":
         default=HitSetGeneratorEnum.DDPM.value,
         help="type of hit set generator to use",
         choices=[e.value for e in HitSetGeneratorEnum],
+    )
+    ap.add_argument(
+        "--var_enc", "--variational_encoder", default=False, action="store_true", help="use a variational encoder"
     )
     ap.add_argument(
         "--pooling_levels",

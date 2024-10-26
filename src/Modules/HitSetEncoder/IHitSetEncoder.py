@@ -17,3 +17,11 @@ class IHitSetEncoder(nn.Module):
         :return Tensor: The output tensor encoding information about the hit point-cloud.
         """
         raise NotImplementedError
+
+    def get_loss(self) -> Tensor:
+        """
+        Get the loss of the encoder. The default implementation returns 0.
+
+        :return Tensor: The loss of the encoder.
+        """
+        return 0.0
