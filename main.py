@@ -103,6 +103,7 @@ def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace
         coordinate_system,
         use_shell_part_sizes,
         device=device,
+        pooling_levels=int(args.pooling_levels),
         ddpm_processor=ddpm_processor,
         ddpm_num_steps=int(args.ddpm_num_steps),
         ddpm_processor_layers=int(args.ddpm_processor_layers),
@@ -225,6 +226,11 @@ if __name__ == "__main__":
         default=HitSetGeneratorEnum.DDPM.value,
         help="type of hit set generator to use",
         choices=[e.value for e in HitSetGeneratorEnum],
+    )
+    ap.add_argument(
+        "--pooling_levels",
+        default=HitSetGenerativeModel.DEFAULT_POOLING_LEVELS,
+        help="number of pooling levels for the global pooling encoder",
     )
     ap.add_argument(
         "--ddpm_processor",

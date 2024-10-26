@@ -23,9 +23,12 @@ class HitSetGenerativeModel(nn.Module):
        At training time it may also optionally make use of the ground-truth point-cloud at the next time-step.
     """
 
+    POOLING_LEVELS = "pooling_levels"
     DDPM_PROCESSOR = "ddpm_processor"
     DDPM_NUM_STEPS = "ddpm_num_steps"
     DDPM_PROCESSOR_LAYERS = "ddpm_processor_layers"
+
+    DEFAULT_POOLING_LEVELS = 1
     DDPM_DEFAULT_PROCESSOR = HitSetProcessorEnum.POINT_NET
     DDPM_DEFUALT_NUM_STEPS = 100
     DDPM_DEFAULT_PROCESSOR_LAYERS = 2
@@ -57,6 +60,7 @@ class HitSetGenerativeModel(nn.Module):
         :param int encoding_dim: Dimension of the encoded hits.
         :param str device: Device to run the model on.
         :param kwargs: Additional arguments:
+        - `pooling_levels`: int. Number of levels to use in the global pooling encoder.
         - `ddpm_processor`: HitSetProcessorEnum. Processor to use in the denoising step of DDPM.
         - `ddpm_num_steps`: int. Number of steps in the diffusion process for DDPM.
         - `ddpm_processor_layers`: int. Number of layers in each processor for DDPM.
@@ -101,18 +105,27 @@ class HitSetGenerativeModel(nn.Module):
             input_channels = [0, 2]
 
         for t in range(time_step.get_num_time_steps() - 1):
-            if encoder_type == HitSetEncoderEnum.POINT_NET:
-                processor = PointNetProcessor(input_channels=input_channels, device=device)
-                self.encoders.append(GlobalPoolingEncoder(processor, device=device))
-            elif encoder_type == HitSetEncoderEnum.LOCAL_GNN:
-                k = 5
-                self.min_size_to_generate = max(self.min_size_to_generate, k + 1)
-                processor = LocalGNNProcessor(coordinate_system, k=k, input_channels=input_channels, device=device)
-                self.encoders.append(GlobalPoolingEncoder(processor, device=device))
+            if encoder_type in [HitSetEncoderEnum.POINT_NET, HitSetEncoderEnum.LOCAL_GNN]:
+                if encoder_type == HitSetEncoderEnum.POINT_NET:
+                    processor = PointNetProcessor(
+                        input_channels=input_channels, hidden_dim=encoding_dim, device=device
+                    )
+                else:  # encoder_type == HitSetEncoderEnum.LOCAL_GNN
+                    k = 5
+                    self.min_size_to_generate = max(self.min_size_to_generate, k + 1)
+                    processor = LocalGNNProcessor(
+                        coordinate_system, k=k, input_channels=input_channels, hidden_dim=encoding_dim, device=device
+                    )
+
+                pooling_levels = kwargs.get(self.POOLING_LEVELS, self.DEFAULT_POOLING_LEVELS)
+                self.encoding_dim = encoding_dim * pooling_levels
+                self.encoders.append(GlobalPoolingEncoder(processor, num_levels=pooling_levels, device=device))
 
             num_sizes = 1 if not use_shell_part_sizes else time_step.get_num_shell_parts(t + 1)
             if size_generator_type == HitSetSizeGeneratorEnum.GAUSSIAN:
-                self.size_generators.append(GaussianSizeGenerator(num_size_samples=num_sizes, device=device))
+                self.size_generators.append(
+                    GaussianSizeGenerator(num_size_samples=num_sizes, input_dim=self.encoding_dim, device=device)
+                )
 
             if set_generator_type == HitSetGeneratorEnum.ADJUSTING:
                 self.set_generators.append(
@@ -134,7 +147,7 @@ class HitSetGenerativeModel(nn.Module):
                     denoising_processors = [
                         PointNetProcessor(
                             input_dim=input_dim,
-                            extra_input_dim=encoding_dim,
+                            extra_input_dim=self.encoding_dim,
                             output_dim=input_dim * mult,
                             num_layers=num_layers,
                             device=device,
@@ -151,7 +164,7 @@ class HitSetGenerativeModel(nn.Module):
                             coordinate_system,
                             k=k,
                             input_dim=input_dim,
-                            extra_input_dim=encoding_dim,
+                            extra_input_dim=self.encoding_dim,
                             output_dim=input_dim * mult,
                             num_layers=num_layers,
                             device=device,
