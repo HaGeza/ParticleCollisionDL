@@ -7,7 +7,7 @@ from torch.optim import lr_scheduler, Optimizer
 
 from src.Data import IDataLoader
 from src.Trainer.TrainingRunIO import TrainingRunIO
-from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel
+from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel, HSGMLosses
 from src.Util import CoordinateSystemEnum
 from src.Util.CoordinateSystemFuncs import convert_to_cartesian
 
@@ -17,8 +17,8 @@ class Trainer:
     Trainer class for training a `HitSetGenerativeModel`s
     """
 
-    DEFAULT_ENCODER_LOSS_W = 0.01
-    DEFAULT_SIZE_LOSS_W = 1000.0
+    DEFAULT_ENCODER_LOSS_W = 0.001
+    DEFAULT_SIZE_LOSS_W = 200.0
 
     def __init__(
         self,
@@ -160,7 +160,7 @@ class Trainer:
         self.model.train()
 
         for epoch in trange(self.start_epoch, self.epochs):
-            loss_mean = 0
+            mean_losses = HSGMLosses(0, 0, 0, 0)
             num_entries = 0
 
             for entry in tqdm(self.data_loader, desc=f"Epoch {epoch + 1}/{self.epochs}", leave=False):
@@ -179,37 +179,41 @@ class Trainer:
 
                     self.optimizer.zero_grad()
 
-                    pred_size, _pred_tensor, encoder_loss, size_loss, set_loss = self.model(
+                    pred_size, _pred_tensor, losses = self.model(
                         in_tensor, gt_tensor, in_batch_index, gt_batch_index, gt_size, t, initial_pred
                     )
 
-                    encoder_loss = encoder_loss * self.encoder_loss_weight
-                    size_loss = size_loss * self.size_loss_weight
-                    loss = encoder_loss + size_loss + set_loss
+                    losses.encoder_loss = losses.encoder_loss * self.encoder_loss_weight
+                    losses.size_loss = losses.size_loss * self.size_loss_weight
+                    losses.total_loss = losses.encoder_loss + losses.size_loss + losses.set_loss
 
-                    loss.backward()
+                    losses.total_loss.backward()
                     self.optimizer.step()
 
                     in_tensor = gt_tensor
                     in_batch_index = gt_batch_index
 
-                    loss_mean += loss.item()
+                    mean_losses.encoder_loss += losses.encoder_loss
+                    mean_losses.size_loss += losses.size_loss
+                    mean_losses.set_loss += losses.set_loss
+                    mean_losses.total_loss += losses.total_loss
                     num_entries += gt_size.size(0)
 
                     if not self.run_io.no_log:
-                        self.run_io.append_to_training_log(
-                            epoch, t, event_ids, size_loss, set_loss, loss, pred_size, gt_size
-                        )
+                        self.run_io.append_to_training_log(epoch, t, event_ids, losses, pred_size, gt_size)
 
                 self.scheduler.step()
 
             # end of epoch
             if num_entries > 0:
-                loss_mean = loss_mean / num_entries
+                mean_losses.encoder_loss /= num_entries
+                mean_losses.size_loss /= num_entries
+                mean_losses.set_loss /= num_entries
+                mean_losses.total_loss /= num_entries
 
             save_min_loss_model = False
-            if loss_mean < min_loss:
-                min_loss = loss_mean
+            if mean_losses.total_loss.item() < min_loss:
+                min_loss = mean_losses.total_loss.item()
                 save_min_loss_model = True
 
             if not self.run_io.no_log:
@@ -217,7 +221,7 @@ class Trainer:
                 with torch.no_grad():
                     hd_train, mse_train = self.evaluate(self.data_loader, self.data_loader.train_events)
                     hd_val, mse_val = self.evaluate(self.data_loader, self.data_loader.val_events)
-                self.run_io.append_to_evaluation_log(epoch, loss_mean, hd_train, mse_train, hd_val, mse_val)
+                self.run_io.append_to_evaluation_log(epoch, mean_losses, hd_train, mse_train, hd_val, mse_val)
 
             self.run_io.save_checkpoint(
                 epoch + 1,

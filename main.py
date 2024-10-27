@@ -8,6 +8,7 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import CyclicLR
 from torch.multiprocessing import set_start_method
 
+from src.Modules.HitSetGenerator.DDPM.BetaSchedules import BetaScheduleEnum
 from src.Modules.HitSetProcessor import HitSetProcessorEnum
 from src.TimeStep.ForAdjusting.PlacementStrategy import EquidistantStrategy, PlacementStrategyEnum, SinusoidStrategy
 from src.Util import CoordinateSystemEnum
@@ -38,25 +39,20 @@ def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace
         "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     )
 
-    # Convert strings to enums
+    # Convert strings to enums (if used in multiple places)
     coordinate_system = CoordinateSystemEnum(args.coordinate_system)
     time_step_type = TimeStepEnum(args.time_step)
     pairing_strategy_type = PairingStrategyEnum(args.pairing_strategy)
     placement_strategy_type = PlacementStrategyEnum(args.placement_strategy)
-    encoder = HitSetEncoderEnum(args.encoder)
-    size_generator = HitSetSizeGeneratorEnum(args.size_generator)
-    set_generator = HitSetGeneratorEnum(args.set_generator)
-    ddpm_processor = HitSetProcessorEnum(args.ddpm_processor)
 
-    # Convert other arguments
+    # Convert other arguments (if used in multiple places)
     epochs = int(args.epochs)
     batch_size = int(args.batch_size)
-    encoder_loss_weight = float(args.encoder_loss_weight)
-    size_loss_weight = float(args.size_loss_weight)
+    encoder_loss_weight = float(args.encoder_loss_w)
+    size_loss_weight = float(args.size_loss_w)
     lr = float(args.lr)
     min_lr = lr if args.min_lr is None else float(args.min_lr)
     use_shell_part_sizes = not args.no_shell_part_sizes
-    no_precomputed = args.no_precomputed
     dataset = args.dataset
 
     # Initialize time step
@@ -70,7 +66,7 @@ def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace
     else:
         raise NotImplementedError(f"Time step {time_step_type} is not implemented")
 
-    if no_precomputed:
+    if args.no_precomputed:
         # Initialize data loader
         data_loader = CollisionEventLoader(
             os.path.join(root_dir, DATA_DIR, dataset),
@@ -96,9 +92,9 @@ def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace
 
     # Initialize model
     model = HitSetGenerativeModel(
-        encoder,
-        size_generator,
-        set_generator,
+        HitSetEncoderEnum(args.encoder),
+        HitSetSizeGeneratorEnum(args.size_generator),
+        HitSetGeneratorEnum(args.set_generator),
         time_step,
         pairing_strategy_type,
         coordinate_system,
@@ -106,9 +102,11 @@ def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace
         device=device,
         variational_encoder=args.var_enc,
         pooling_levels=int(args.pooling_levels),
-        ddpm_processor=ddpm_processor,
+        ddpm_processor=HitSetProcessorEnum(args.ddpm_processor),
         ddpm_num_steps=int(args.ddpm_num_steps),
         ddpm_processor_layers=int(args.ddpm_processor_layers),
+        ddpm_beta_schedule=BetaScheduleEnum(args.ddpm_beta_schedule),
+        ddpm_use_reverse_posterior=args.ddpm_use_reverse_posterior,
     )
 
     # Initialize optimizer
@@ -181,10 +179,8 @@ if __name__ == "__main__":
         default=None,
         help="minimum learning rate for training; if not specified, equal to lr",
     )
-    ap.add_argument(
-        "--encoder_loss_weight", default=Trainer.DEFAULT_ENCODER_LOSS_W, help="weight for the encoder loss"
-    )
-    ap.add_argument("--size_loss_weight", default=Trainer.DEFAULT_SIZE_LOSS_W, help="weight for the size loss")
+    ap.add_argument("--encoder_loss_w", default=Trainer.DEFAULT_ENCODER_LOSS_W, help="weight for the encoder loss")
+    ap.add_argument("--size_loss_w", default=Trainer.DEFAULT_SIZE_LOSS_W, help="weight for the size loss")
     ap.add_argument("-r", "--random_seed", default=42, help="random seed")
     ap.add_argument(
         "--coordinate_system",
@@ -255,6 +251,18 @@ if __name__ == "__main__":
         help="number of layers in each processor for DDPM for denoising",
     )
     ap.add_argument("--ddpm_num_steps", default=100, help="number of steps in the DDPM diffusion process")
+    ap.add_argument(
+        "--ddpm_beta_schedule",
+        default=BetaScheduleEnum.COSINE.value,
+        help="beta schedule for DDPM",
+        choices=[e.value for e in BetaScheduleEnum],
+    )
+    ap.add_argument(
+        "--ddpm_use_reverse_posterior",
+        default=HitSetGenerativeModel.DDPM_DEFAULT_USE_REVERSE_POSTERIOR,
+        action="store_true",
+        help="use forward posterior",
+    )
 
     args = ap.parse_args()
 

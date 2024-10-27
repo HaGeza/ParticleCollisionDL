@@ -13,7 +13,7 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import _LRScheduler
 
 from src.Data import IDataLoader
-from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel
+from src.Modules.HitSetGenerativeModel import HSGMLosses, HitSetGenerativeModel
 from src.Util.Paths import RUNS_DIR
 
 
@@ -136,7 +136,7 @@ class TrainingRunIO:
             with open(self.train_log, "w") as f:
                 row = ["epoch", "t"]
                 row += [f"event_{i}" for i in range(B)]
-                row += ["size_loss", "set_loss", "loss"]
+                row += ["encoder_loss", "size_loss", "set_loss", "loss"]
 
                 if not model.use_shell_part_sizes:
                     row += [f"pred_size_{i}" for i in range(B)]
@@ -151,7 +151,7 @@ class TrainingRunIO:
 
             # Create log of evaluation metrics
             with open(self.eval_log, "w") as f:
-                row = ["epoch", "loss"] + [
+                row = ["epoch", "encoder_loss", "size_loss", "set_loss", "loss"] + [
                     f"{m}_{s}_{t}" for t in range(1, T) for m in ["mse", "hd"] for s in ["train", "val"]
                 ]
                 csv.writer(f).writerow(row)
@@ -183,9 +183,7 @@ class TrainingRunIO:
         epoch: int,
         t: int,
         event_ids: list[str],
-        size_loss: Tensor,
-        set_loss: Tensor,
-        loss: Tensor,
+        losses: HSGMLosses,
         pred_size: Tensor,
         gt_size: Tensor,
     ):
@@ -208,7 +206,7 @@ class TrainingRunIO:
         with open(self.train_log, "a") as f:
             row = [epoch, t]
             row += event_ids
-            row += [size_loss.item(), set_loss.item(), loss.item()]
+            row += list(losses)
             pred_size_flat = pred_size.view(-1).tolist()
             padding = [""] * (self.max_num_size_preds - len(pred_size_flat))
             row += pred_size_flat + padding + gt_size.view(-1).tolist()
@@ -217,7 +215,7 @@ class TrainingRunIO:
     def append_to_evaluation_log(
         self,
         epoch: int,
-        loss_mean: float,
+        mean_losses: HSGMLosses,
         mse_train: list[float],
         hd_train: list[float],
         mse_val: list[float],
@@ -235,7 +233,7 @@ class TrainingRunIO:
         """
 
         with open(self.eval_log, "a") as f:
-            row = [epoch, loss_mean]
+            row = [epoch] + list(mean_losses)
             for metric_values in zip(mse_train, mse_val, hd_train, hd_val):
                 row += list(metric_values)
             csv.writer(f).writerow(row)

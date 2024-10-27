@@ -34,11 +34,12 @@ class GlobalPoolingEncoder(IHitSetEncoder):
     def forward(self, x: Tensor, x_ind: Tensor, batch_size: int = 0) -> Tensor:
         x = self.processor(x, x_ind)
 
+        kl_div = torch.tensor(0.0, device=self.device)
         if self.variational:
             enc_dim = x.size(1) // 2
             mus, log_vars = x[:, :enc_dim], x[:, enc_dim:]
             x = mus + torch.exp(0.5 * log_vars) * torch.randn_like(log_vars, device=self.device)
-            self.kl_div = log_standard_normal(x) - log_normal_diag(x, mus, log_vars).sum()
+            kl_div = log_standard_normal(x) - log_normal_diag(x, mus, log_vars).sum()
 
         out_size = x_ind.max().item() + 1 if batch_size == 0 else batch_size
         out = torch.full((out_size, x.size(1) * self.num_levels), -float("inf"), device=x.device)
@@ -50,7 +51,4 @@ class GlobalPoolingEncoder(IHitSetEncoder):
             else:
                 out[i] = torch.zeros_like(out[i])
 
-        return out
-
-    def get_loss(self) -> Tensor:
-        return self.kl_div.mean() if self.variational else torch.tensor(0.0, device=self.device)
+        return out, kl_div.mean()
