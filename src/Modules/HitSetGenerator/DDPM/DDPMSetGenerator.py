@@ -51,6 +51,13 @@ class DDPMSetGenerator(AdjustingSetGenerator):
 
         self.num_steps = num_steps
         self.betas = torch.tensor(beta_schedule.get_betas())
+        self.alphas = 1 - self.betas
+        self.alpha_bars = torch.cumprod(self.alphas, dim=0)
+
+        self.x0_weights = self.alpha_bars[:-1].sqrt() * self.betas[1:] / (1 - self.alpha_bars[1:])
+        self.xt_weights = self.alphas[1:].sqrt() * (1 - self.alpha_bars[:-1]) / (1 - self.alpha_bars[1:])
+        self.log_beta_tilde = (1 - self.alpha_bars[:-1]).log() - (1 - self.alpha_bars[1:]).log() + self.betas[1:].log()
+
         self.processors = nn.ModuleList(denoising_processors)
         self.gnn_processor_used = gnn_processor_used
 
@@ -65,17 +72,18 @@ class DDPMSetGenerator(AdjustingSetGenerator):
 
         return torch.sqrt(1.0 - self.betas[step]) * x + torch.sqrt(self.betas[step]) * torch.randn_like(x)
 
-    def _log_posterior(self, latent: Tensor, beta_ind: int) -> Tensor:
+    def _log_posterior(self, latents: list[Tensor], step: int) -> Tensor:
         """
         Compute log posterior.
 
-        :param Tensor latent: Latent tensor. Shape `[encoding_dim]`
-        :param int beta_ind: Index of the beta value.
+        :param Tensor latents: List of latent tensors, each with shape `[encoding_dim]`
         :return Tensor: Log posterior
         """
 
         return log_normal_diag(
-            latent, torch.sqrt(1.0 - self.betas[beta_ind]) * latent, torch.log(self.betas[beta_ind])
+            latents[step],
+            self.x0_weights[step] * latents[0] + self.xt_weights[step] * latents[step + 1],
+            self.log_beta_tilde[step],
         )
 
     def get_gnn_potential_neighbors(
@@ -219,9 +227,9 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         # calculate ELBO
         re_term = (log_standard_normal(diffs - pred_diffs)).sum(dim=1)
 
-        kl_term = (self._log_posterior(latents[-1], -1) - log_standard_normal(latents[-1])).sum(dim=1)
+        kl_term = 0
         for i in range(self.num_steps - 2, -1, -1):
-            kl_term_i = self._log_posterior(latents[i], i) - log_normal_diag(latents[i], mus[i], log_vars[i])
+            kl_term_i = self._log_posterior(latents, i) - log_normal_diag(latents[i], mus[i], log_vars[i])
             kl_term = kl_term + kl_term_i.sum(dim=1)
 
         loss = -(re_term - kl_term).mean()

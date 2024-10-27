@@ -220,5 +220,11 @@ class Trainer:
                 self.run_io.append_to_evaluation_log(epoch, loss_mean, hd_train, mse_train, hd_val, mse_val)
 
             self.run_io.save_checkpoint(
-                epoch + 1, self.model, self.optimizer, self.scheduler, self.size_loss_weight, save_min_loss_model
+                epoch + 1,
+                self.model,
+                self.optimizer,
+                self.scheduler,
+                self.encoder_loss_weight,
+                self.size_loss_weight,
+                save_min_loss_model,
             )

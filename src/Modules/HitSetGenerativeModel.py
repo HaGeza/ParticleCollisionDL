@@ -29,6 +29,7 @@ class HitSetGenerativeModel(nn.Module):
     DDPM_NUM_STEPS = "ddpm_num_steps"
     DDPM_PROCESSOR_LAYERS = "ddpm_processor_layers"
 
+    DEFAULT_VARIATIONAL_ENCODER = False
     DEFAULT_POOLING_LEVELS = 1
     DDPM_DEFAULT_PROCESSOR = HitSetProcessorEnum.POINT_NET
     DDPM_DEFUALT_NUM_STEPS = 100
@@ -88,10 +89,17 @@ class HitSetGenerativeModel(nn.Module):
             "using_shell_part_sizes": use_shell_part_sizes,
         }
 
+        if encoder_type in [HitSetEncoderEnum.POINT_NET, HitSetEncoderEnum.LOCAL_GNN]:
+            self.information["encoder"] = {
+                "variational": kwargs.get(self.VARIATIONAL_ENCODER, False),
+                "pooling_levels": kwargs.get(self.POOLING_LEVELS, self.DEFAULT_POOLING_LEVELS),
+            }
+
         if set_generator_type == HitSetGeneratorEnum.DDPM:
             self.information["ddpm"] = {
                 "num_steps": kwargs.get(self.DDPM_NUM_STEPS, self.DDPM_DEFUALT_NUM_STEPS),
                 "processor": kwargs.get(self.DDPM_PROCESSOR, self.DDPM_DEFAULT_PROCESSOR).value,
+                "processor_layers": kwargs.get(self.DDPM_PROCESSOR_LAYERS, self.DDPM_DEFAULT_PROCESSOR_LAYERS),
             }
 
         self.encoders = nn.ModuleList()
