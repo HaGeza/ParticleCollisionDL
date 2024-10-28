@@ -1,4 +1,15 @@
+from enum import Enum
+
 import numpy as np
+
+
+class BetaScheduleEnum(Enum):
+    """
+    Enum for the beta schedules.
+    """
+
+    LINEAR = "linear"
+    COSINE = "cosine"
 
 
 class IBetaSchedule:

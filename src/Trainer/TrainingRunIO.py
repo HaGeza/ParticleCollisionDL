@@ -13,7 +13,7 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import _LRScheduler
 
 from src.Data import IDataLoader
-from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel
+from src.Modules.HitSetGenerativeModel import HSGMLosses, HitSetGenerativeModel
 from src.Util.Paths import RUNS_DIR
 
 
@@ -39,6 +39,7 @@ class TrainingRunIO:
     OPTIMIZER_FIELD = "optimizer"
     SCHEDULER_FIELD = "scheduler"
     EPOCH_FIELD = "epoch"
+    ENCODER_LOSS_WEIGHT_FIELD = "encoder_loss_weight"
     SIZE_LOSS_WEIGHT_FIELD = "size_loss_weight"
     DATA_LOADER_NAME = "data_loader"
 
@@ -108,6 +109,7 @@ class TrainingRunIO:
         scheduler: _LRScheduler,
         data_loader: IDataLoader,
         epochs: int,
+        encoder_loss_weight: float,
         size_loss_weight: float,
     ):
         """
@@ -118,6 +120,7 @@ class TrainingRunIO:
         :param _LRScheduler scheduler: The scheduler used for training
         :param int batch_size: The batch size used for training
         :param int epochs: The number of training epochs
+        :parma float encoder_loss_weight: The weight to give to the encoder loss
         :param float size_loss_weight: The weight to give to the size loss
         """
 
@@ -133,7 +136,7 @@ class TrainingRunIO:
             with open(self.train_log, "w") as f:
                 row = ["epoch", "t"]
                 row += [f"event_{i}" for i in range(B)]
-                row += ["size_loss", "set_loss", "loss"]
+                row += ["encoder_loss", "size_loss", "set_loss", "loss"]
 
                 if not model.use_shell_part_sizes:
                     row += [f"pred_size_{i}" for i in range(B)]
@@ -148,7 +151,7 @@ class TrainingRunIO:
 
             # Create log of evaluation metrics
             with open(self.eval_log, "w") as f:
-                row = ["epoch", "loss"] + [
+                row = ["epoch", "encoder_loss", "size_loss", "set_loss", "loss"] + [
                     f"{m}_{s}_{t}" for t in range(1, T) for m in ["mse", "hd"] for s in ["train", "val"]
                 ]
                 csv.writer(f).writerow(row)
@@ -173,16 +176,14 @@ class TrainingRunIO:
 
         # Save data loader
         torch.save(data_loader, os.path.join(self.dir, f"{self.DATA_LOADER_NAME}.pth"))
-        self.save_checkpoint(0, model, optimizer, scheduler, size_loss_weight, True)
+        self.save_checkpoint(0, model, optimizer, scheduler, encoder_loss_weight, size_loss_weight, True)
 
     def append_to_training_log(
         self,
         epoch: int,
         t: int,
         event_ids: list[str],
-        size_loss: Tensor,
-        set_loss: Tensor,
-        loss: Tensor,
+        losses: HSGMLosses,
         pred_size: Tensor,
         gt_size: Tensor,
     ):
@@ -205,7 +206,7 @@ class TrainingRunIO:
         with open(self.train_log, "a") as f:
             row = [epoch, t]
             row += event_ids
-            row += [size_loss.item(), set_loss.item(), loss.item()]
+            row += list(losses)
             pred_size_flat = pred_size.view(-1).tolist()
             padding = [""] * (self.max_num_size_preds - len(pred_size_flat))
             row += pred_size_flat + padding + gt_size.view(-1).tolist()
@@ -214,7 +215,7 @@ class TrainingRunIO:
     def append_to_evaluation_log(
         self,
         epoch: int,
-        loss_mean: float,
+        mean_losses: HSGMLosses,
         mse_train: list[float],
         hd_train: list[float],
         mse_val: list[float],
@@ -232,7 +233,7 @@ class TrainingRunIO:
         """
 
         with open(self.eval_log, "a") as f:
-            row = [epoch, loss_mean]
+            row = [epoch] + list(mean_losses)
             for metric_values in zip(mse_train, mse_val, hd_train, hd_val):
                 row += list(metric_values)
             csv.writer(f).writerow(row)
@@ -243,6 +244,7 @@ class TrainingRunIO:
         model: HitSetGenerativeModel,
         optimizer: Optimizer,
         scheduler: _LRScheduler,
+        encoder_loss_weight: float,
         size_loss_weight: float,
         save_min_loss_model: bool,
     ):
@@ -253,6 +255,7 @@ class TrainingRunIO:
         :param HitSetGenerativeModel model: The model to save
         :param Optimizer optimizer: The optimizer to save
         :param _LRScheduler scheduler: The scheduler to save
+        :param float encoder_loss_weight: The weight to give to the encoder loss
         :param float size_loss_weight: The weight to give to the size loss
         :param bool save_min_loss_model: Whether to save the model twice (once for being
             the latest model, once for being the model with the lowest loss)
@@ -263,6 +266,7 @@ class TrainingRunIO:
             self.OPTIMIZER_FIELD: optimizer,
             self.SCHEDULER_FIELD: scheduler,
             self.EPOCH_FIELD: epoch,
+            self.ENCODER_LOSS_WEIGHT_FIELD: encoder_loss_weight,
             self.SIZE_LOSS_WEIGHT_FIELD: size_loss_weight,
         }
 
