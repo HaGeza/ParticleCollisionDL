@@ -172,11 +172,11 @@ if __name__ == "__main__":
     )
     ap.add_argument("-e", "--epochs", default=100, help="number of epochs to train the model")
     ap.add_argument("-b", "--batch_size", default=2, help="batch size for training")
-    ap.add_argument("-l", "--lr", "--learning_rate", default=1e-3, help="learning rate for training")
+    ap.add_argument("-l", "--lr", "--learning_rate", default=1e-2, help="learning rate for training")
     ap.add_argument(
         "--min_lr",
         "--min_learning_rate",
-        default=None,
+        default=1e-6,
         help="minimum learning rate for training; if not specified, equal to lr",
     )
     ap.add_argument("--encoder_loss_w", default=Trainer.DEFAULT_ENCODER_LOSS_W, help="weight for the encoder loss")
@@ -241,7 +241,7 @@ if __name__ == "__main__":
     )
     ap.add_argument(
         "--ddpm_processor",
-        default=HitSetProcessorEnum.POINT_NET.value,
+        default=HitSetProcessorEnum.LOCAL_GNN.value,
         help="type of hit set processor to use for DDPM for denoising",
         choices=[e.value for e in HitSetProcessorEnum],
     )
