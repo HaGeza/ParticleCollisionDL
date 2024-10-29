@@ -200,7 +200,9 @@ class Trainer:
                     num_entries += gt_size.size(0)
 
                     if not self.run_io.no_log:
-                        self.run_io.append_to_training_log(epoch, t, event_ids, losses, pred_size, gt_size)
+                        self.run_io.append_to_training_log(
+                            epoch, t, event_ids, losses, pred_size, gt_size, self.data_loader.get_batch_size()
+                        )
 
                 self.scheduler.step()
 

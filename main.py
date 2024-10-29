@@ -250,7 +250,11 @@ if __name__ == "__main__":
         default=HitSetGenerativeModel.DDPM_DEFAULT_PROCESSOR_LAYERS,
         help="number of layers in each processor for DDPM for denoising",
     )
-    ap.add_argument("--ddpm_num_steps", default=100, help="number of steps in the DDPM diffusion process")
+    ap.add_argument(
+        "--ddpm_num_steps",
+        default=HitSetGenerativeModel.DDPM_DEFUALT_NUM_STEPS,
+        help="number of steps in the DDPM diffusion process",
+    )
     ap.add_argument(
         "--ddpm_beta_schedule",
         default=BetaScheduleEnum.COSINE.value,

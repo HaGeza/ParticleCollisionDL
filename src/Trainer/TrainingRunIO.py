@@ -186,6 +186,7 @@ class TrainingRunIO:
         losses: HSGMLosses,
         pred_size: Tensor,
         gt_size: Tensor,
+        batch_size: int,
     ):
         """
         Append a new row to the training log
@@ -198,6 +199,7 @@ class TrainingRunIO:
         :param Tensor loss: The total loss
         :param Tensor pred_size: The predicted sizes
         :param Tensor gt_size: The ground truth sizes
+        :param int batch_size: The batch size
         """
 
         if self.max_num_size_preds is None:
@@ -205,7 +207,8 @@ class TrainingRunIO:
 
         with open(self.train_log, "a") as f:
             row = [epoch, t]
-            row += event_ids
+            padding = [""] * (batch_size - len(event_ids))
+            row += event_ids + padding
             row += list(losses)
             pred_size_flat = pred_size.view(-1).tolist()
             padding = [""] * (self.max_num_size_preds - len(pred_size_flat))
