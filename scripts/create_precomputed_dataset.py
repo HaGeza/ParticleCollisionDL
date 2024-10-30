@@ -20,7 +20,7 @@ from src.Pairing import (
     VectorizedGreedyStrategy,
 )
 from src.Util import CoordinateSystemEnum
-from src.Util.Paths import DATA_DIR, PRECOMPUTED_DATA_DIR, get_precomputed_data_path
+from src.Util.Paths import DATA_DIR, get_precomputed_data_path
 from src.Util.CoordinateSystemFuncs import convert_to_cartesian
 
 
@@ -93,7 +93,7 @@ if __name__ == "__main__":
         root_dir,
         args.input,
         TimeStepEnum(args.time_step),
-        CoordinateSystemEnum(coord_system),
+        coord_system,
         PlacementStrategyEnum(args.placement_strategy),
         PairingStrategyEnum(args.pairing_strategy),
         use_shell_parts,
