@@ -102,6 +102,7 @@ def initialize_trainer_from_args(run_io: TrainingRunIO, args: argparse.Namespace
         device=device,
         variational_encoder=args.var_enc,
         pooling_levels=int(args.pooling_levels),
+        encoder_layers=int(args.encoder_layers),
         ddpm_processor=HitSetProcessorEnum(args.ddpm_processor),
         ddpm_num_steps=int(args.ddpm_num_steps),
         ddpm_processor_layers=int(args.ddpm_processor_layers),
@@ -218,6 +219,11 @@ if __name__ == "__main__":
         default=HitSetEncoderEnum.POINT_NET.value,
         help="type of encoder to use",
         choices=[e.value for e in HitSetEncoderEnum],
+    )
+    ap.add_argument(
+        "--encoder_layers",
+        default=HitSetGenerativeModel.DEFAULT_ENCODER_LAYERS,
+        help="number of layers in the encoder",
     )
     ap.add_argument(
         "--size_generator",

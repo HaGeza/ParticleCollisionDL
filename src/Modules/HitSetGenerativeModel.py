@@ -49,6 +49,7 @@ class HitSetGenerativeModel(nn.Module):
 
     VARIATIONAL_ENCODER = "variational_encoder"
     POOLING_LEVELS = "pooling_levels"
+    ENCODER_LAYERS = "encoder_layers"
     DDPM_PROCESSOR = "ddpm_processor"
     DDPM_NUM_STEPS = "ddpm_num_steps"
     DDPM_PROCESSOR_LAYERS = "ddpm_processor_layers"
@@ -57,6 +58,7 @@ class HitSetGenerativeModel(nn.Module):
 
     DEFAULT_VARIATIONAL_ENCODER = False
     DEFAULT_POOLING_LEVELS = 1
+    DEFAULT_ENCODER_LAYERS = 3
     DDPM_DEFAULT_PROCESSOR = HitSetProcessorEnum.POINT_NET
     DDPM_DEFUALT_NUM_STEPS = 100
     DDPM_DEFAULT_PROCESSOR_LAYERS = 2
@@ -92,6 +94,7 @@ class HitSetGenerativeModel(nn.Module):
         :param kwargs: Additional arguments:
         - `variational_encoder`: bool. Whether to use a variational encoder.
         - `pooling_levels`: int. Number of levels to use in the global pooling encoder.
+        - `encoder_layers`: int. Number of layers in the encoder.
         - `ddpm_processor`: HitSetProcessorEnum. Processor to use in the denoising step of DDPM.
         - `ddpm_num_steps`: int. Number of steps in the diffusion process for DDPM.
         - `ddpm_processor_layers`: int. Number of layers in each processor for DDPM.
@@ -136,6 +139,7 @@ class HitSetGenerativeModel(nn.Module):
             if encoder_type in [HitSetEncoderEnum.POINT_NET, HitSetEncoderEnum.LOCAL_GNN]:
                 variational_encoder = kwargs.get(self.VARIATIONAL_ENCODER, False)
                 pooling_levels = kwargs.get(self.POOLING_LEVELS, self.DEFAULT_POOLING_LEVELS)
+                encoder_layers = kwargs.get(self.ENCODER_LAYERS, self.DEFAULT_ENCODER_LAYERS)
 
                 self.information["encoder"] = {
                     "variational": variational_encoder,
@@ -148,6 +152,7 @@ class HitSetGenerativeModel(nn.Module):
                         input_channels=input_channels,
                         hidden_dim=encoding_dim,
                         output_dim=encoder_out_dim,
+                        num_layers=encoder_layers,
                         device=device,
                     )
                 else:  # encoder_type == HitSetEncoderEnum.LOCAL_GNN
@@ -159,6 +164,7 @@ class HitSetGenerativeModel(nn.Module):
                         input_channels=input_channels,
                         hidden_dim=encoding_dim,
                         output_dim=encoder_out_dim,
+                        num_layers=encoder_layers,
                         device=device,
                     )
 

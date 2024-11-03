@@ -153,7 +153,7 @@ if __name__ == "__main__":
 
         for event_id in event_ids:
             with open(out_files[event_id], "w") as f:
-                json.dump(out_dicts[event_id], f, indent=4)
+                json.dump(out_dicts[event_id], f)
 
     with open(os.path.join(out_path, "gt_sizes.json"), "w") as f:
-        json.dump(gt_sizes, f, indent=4)
+        json.dump(gt_sizes, f)
