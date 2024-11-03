@@ -76,3 +76,8 @@ class PointNetProcessor(IHitSetProcessor):
             # if encodings is not None:
             #     x = torch.cat([x, encodings], dim=1)
         return self.layers[-1](x)
+
+    def to(self, device, *args, **kwargs):
+        self.device = device
+        self.layers.to(device)
+        return super().to(device, *args, **kwargs)

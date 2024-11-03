@@ -33,6 +33,9 @@ class PrecomputedTimeStep(ITimeStepForAdjusting):
     def normalize_hit_tensor(self, hit_tensor: Tensor, t: int, coordinate_system: CoordinateSystemEnum) -> Tensor:
         return self.fallback_time_step.normalize_hit_tensor(hit_tensor, t, coordinate_system)
 
+    def unnormalize_hit_tensor(self, hit_tensor: Tensor, t: int, coordinate_system: CoordinateSystemEnum) -> Tensor:
+        return self.fallback_time_step.unnormalize_hit_tensor(hit_tensor, t, coordinate_system)
+
     def place_hits(
         self,
         t: int,

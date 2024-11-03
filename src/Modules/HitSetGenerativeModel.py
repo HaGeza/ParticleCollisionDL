@@ -36,6 +36,16 @@ class HSGMLosses:
         yield self.set_loss.item()
         yield self.total_loss.item()
 
+    def set_to_zeros(self):
+        """
+        Set all losses to zero.
+        """
+
+        self.encoder_loss = torch.tensor(0.0)
+        self.size_loss = torch.tensor(0.0)
+        self.set_loss = torch.tensor(0.0)
+        self.total_loss = torch.tensor(0.0)
+
 
 class HitSetGenerativeModel(nn.Module):
     """
@@ -373,3 +383,12 @@ class HitSetGenerativeModel(nn.Module):
         )
 
         return size, hits, used_size
+
+    def to(self, device, *args, **kwargs):
+        self.device = device
+        for t in range(self.time_step.get_num_time_steps() - 1):
+            self.encoders[t].to(device)
+            self.size_generators[t].to(device)
+            if self.set_generators[t] is not None:
+                self.set_generators[t].to(device)
+        return super().to(device, *args, **kwargs)

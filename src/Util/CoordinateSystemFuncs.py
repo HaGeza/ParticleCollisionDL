@@ -22,6 +22,29 @@ def convert_to_cartesian(x: Tensor, coordinate_system: CoordinateSystemEnum, the
     raise ValueError(f"Unknown coordinate system: {coordinate_system}")
 
 
+def convert_to_cylindrical(
+    x: Tensor, coordinate_system: CoordinateSystemEnum, theta_normalized: bool = False
+) -> Tensor:
+    """
+    Convert a tensor of points from the given coordinate system to cylindrical coordinates.
+
+    :param Tensor x: The tensor of points to convert. Shape `[N, 3]`
+    :param CoordinateSystemEnum coordinate_system: The coordinate system.
+    :param bool theta_normalized: Whether the theta coordinate is normalized to [-1, 1].
+    :return Tensor: The tensor of points in cylindrical coordinates. Shape `[N, 3]`
+    """
+
+    if coordinate_system == CoordinateSystemEnum.CARTESIAN:
+        r = torch.norm(x[:, :2], dim=1)
+        theta = torch.atan2(x[:, 1], x[:, 0])
+        if theta_normalized:
+            theta = (theta / torch.pi) % 2 - 1
+        return torch.stack([r, theta, x[:, 2]], dim=1)
+    if coordinate_system == CoordinateSystemEnum.CYLINDRICAL:
+        return x
+    raise ValueError(f"Unknown coordinate system: {coordinate_system}")
+
+
 def convert_from_cylindrical(
     x: Tensor, coordinate_system: CoordinateSystemEnum, theta_normalized: bool = False
 ) -> Tensor:

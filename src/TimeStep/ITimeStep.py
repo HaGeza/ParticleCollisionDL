@@ -35,6 +35,18 @@ class ITimeStep:
 
         raise NotImplementedError
 
+    def unnormalize_hit_tensor(self, hit_tensor: Tensor, t: int, coordinate_system: CoordinateSystemEnum) -> Tensor:
+        """
+        Unnormalize the hit tensor for the given time step.
+
+        :param Tensor hit_tensor: The hit tensor to unnormalize
+        :param int t: The time step to unnormalize the hit tensor for
+        :param CoordinateSystemEnum coordinate_system: The coordinate system used
+        :return Tensor: The unnormalized hit tensor
+        """
+
+        raise NotImplementedError
+
     def get_num_shell_parts(self, t: int) -> int:
         """
         Get the number of shell parts for the given time step.

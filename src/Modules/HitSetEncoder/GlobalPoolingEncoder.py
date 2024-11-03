@@ -52,3 +52,8 @@ class GlobalPoolingEncoder(IHitSetEncoder):
                 out[i] = torch.zeros_like(out[i])
 
         return out, kl_div.mean()
+
+    def to(self, device, *args, **kwargs):
+        self.device = device
+        self.processor.to(device)
+        return super().to(device, *args, **kwargs)

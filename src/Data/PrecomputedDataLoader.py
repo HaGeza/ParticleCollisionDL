@@ -80,7 +80,7 @@ class PrecomputedDataLoader(IDataLoader):
 
     def get_gt_size(
         self, gt_tensor: Tensor, gt_batch_index: Tensor, t: int, use_shell_parts: bool = True, events: list[str] = []
-    ) -> tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor, Tensor]:
         gt_size = torch.stack(
             [torch.tensor(self.gt_sizes[event_id][t], dtype=torch.float32, device=self.device) for event_id in events],
             dim=0,
@@ -94,7 +94,7 @@ class PrecomputedDataLoader(IDataLoader):
                 ],
                 dim=0,
             )
-        return gt_size, part_ids
+        return gt_size, part_ids, gt_tensor
 
     def get_batch_size(self) -> int:
         return self.batch_size

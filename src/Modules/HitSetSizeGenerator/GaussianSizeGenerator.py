@@ -63,3 +63,8 @@ class GaussianSizeGenerator(IHitSetSizeGenerator):
 
     def calc_loss(self, pred_size: Tensor, gt_size: Tensor) -> Tensor:
         return F.mse_loss(pred_size / self.size_scaler, gt_size / self.size_scaler)
+
+    def to(self, device, *args, **kwargs):
+        self.device = device
+        self.layers.to(device)
+        return super().to(device, *args, **kwargs)

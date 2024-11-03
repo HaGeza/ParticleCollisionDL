@@ -189,3 +189,8 @@ class LocalGNNProcessor(IHitSetProcessor):
             x = self.activation(layer(x))
             x = self._create_local_graph_tensor(x, neighbor_inds, neighbor_diffs)
         return self.layers[-1](x)
+
+    def to(self, device, *args, **kwargs):
+        self.device = device
+        self.layers.to(device)
+        return super().to(device, *args, **kwargs)

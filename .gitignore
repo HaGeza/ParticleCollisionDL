@@ -9,3 +9,4 @@ __pycache__
 venv
 .venv/*
 snellius.zip
+notebooks/plot_hits_out

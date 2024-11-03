@@ -31,6 +31,8 @@ class TrainingRunIO:
     TRAINING_SECTION = "training"
     MODEL_SECTION = "model"
 
+    EVENT_KEY = "event"
+    NO_EVENT = f"{EVENT_KEY}_NONE"
     DATE_FIELD = "date"
     NUM_EPOCHS_FIELD = "epochs"
     MAX_NUM_SIZE_PREDS_FIELD = "max_num_size_preds"
@@ -39,6 +41,10 @@ class TrainingRunIO:
     OPTIMIZER_FIELD = "optimizer"
     SCHEDULER_FIELD = "scheduler"
     EPOCH_FIELD = "epoch"
+    LOSS_FIELD = "loss"
+    ENCODER_LOSS_FIELD = "encoder_loss"
+    SIZE_LOSS_FIELD = "size_loss"
+    SET_LOSS_FIELD = "set_loss"
     ENCODER_LOSS_WEIGHT_FIELD = "encoder_loss_weight"
     SIZE_LOSS_WEIGHT_FIELD = "size_loss_weight"
     DATA_LOADER_NAME = "data_loader"
@@ -134,9 +140,9 @@ class TrainingRunIO:
         if not self.no_log:
             # Create log of training progress
             with open(self.train_log, "w") as f:
-                row = ["epoch", "t"]
-                row += [f"event_{i}" for i in range(B)]
-                row += ["encoder_loss", "size_loss", "set_loss", "loss"]
+                row = [self.EPOCH_FIELD, "t"]
+                row += [f"{self.EVENT_KEY}_{i}" for i in range(B)]
+                row += [self.ENCODER_LOSS_FIELD, self.SIZE_LOSS_FIELD, self.SIZE_LOSS_FIELD, self.LOSS_FIELD]
 
                 if not model.use_shell_part_sizes:
                     row += [f"pred_size_{i}" for i in range(B)]
@@ -151,9 +157,13 @@ class TrainingRunIO:
 
             # Create log of evaluation metrics
             with open(self.eval_log, "w") as f:
-                row = ["epoch", "encoder_loss", "size_loss", "set_loss", "loss"] + [
-                    f"{m}_{s}_{t}" for t in range(1, T) for m in ["mse", "hd"] for s in ["train", "val"]
-                ]
+                row = [
+                    self.EPOCH_FIELD,
+                    self.ENCODER_LOSS_FIELD,
+                    self.SIZE_LOSS_FIELD,
+                    self.SET_LOSS_FIELD,
+                    self.LOSS_FIELD,
+                ] + [f"{m}_{s}_{t}" for t in range(1, T) for m in ["mse", "hd"] for s in ["train", "val"]]
                 csv.writer(f).writerow(row)
 
         # Set up info file
@@ -207,7 +217,7 @@ class TrainingRunIO:
 
         with open(self.train_log, "a") as f:
             row = [epoch, t]
-            padding = [""] * (batch_size - len(event_ids))
+            padding = [self.NO_EVENT] * (batch_size - len(event_ids))
             row += event_ids + padding
             row += list(losses)
             pred_size_flat = pred_size.view(-1).tolist()

@@ -119,7 +119,9 @@ if __name__ == "__main__":
         for t in trange(T, leave=False, desc="Time steps"):
             hits_tensor = hits_tensor_list[t]
             batch_index = batch_index_list[t]
-            size_tensor, part_index = data_loader.get_gt_size(hits_tensor, batch_index, t, use_shell_parts)
+            size_tensor, part_index, hits_tensor = data_loader.get_gt_size(
+                hits_tensor, batch_index, t, use_shell_parts
+            )
             part_index = part_index if use_shell_parts else None
 
             if t > 0:

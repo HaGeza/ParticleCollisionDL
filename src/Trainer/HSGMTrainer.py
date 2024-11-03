@@ -117,7 +117,7 @@ class Trainer:
                 gt_tensor = hits_tensor_list[t][:, :in_dim]
 
                 gt_batch_index = batch_index_list[t].detach()
-                gt_size, _ = data_loader.get_gt_size(gt_tensor, gt_batch_index, t, events=event_ids)
+                gt_size, _, gt_tensor = data_loader.get_gt_size(gt_tensor, gt_batch_index, t, events=event_ids)
                 B = gt_size.size(0)
 
                 pred_size, pred_tensor, used_size = self.model.generate(in_tensor, in_batch_index, t, batch_size=B)
@@ -161,6 +161,7 @@ class Trainer:
 
         for epoch in trange(self.start_epoch, self.epochs):
             mean_losses = HSGMLosses(0, 0, 0, 0)
+            mean_losses.set_to_zeros()
             num_entries = 0
 
             for entry in tqdm(self.data_loader, desc=f"Epoch {epoch + 1}/{self.epochs}", leave=False):
@@ -175,7 +176,9 @@ class Trainer:
                     initial_pred = hits_tensor_list[t][:, in_dim:]
 
                     gt_batch_index = batch_index_list[t].detach()
-                    gt_size, _ = self.data_loader.get_gt_size(gt_tensor, gt_batch_index, t, events=event_ids)
+                    gt_size, _, gt_tensor = self.data_loader.get_gt_size(
+                        gt_tensor, gt_batch_index, t, events=event_ids
+                    )
 
                     self.optimizer.zero_grad()
 

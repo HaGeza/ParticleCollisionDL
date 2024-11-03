@@ -290,3 +290,9 @@ class DDPMSetGenerator(AdjustingSetGenerator):
 
         # move points according to sample from denoised movement distributions
         return initial_points + diffs
+
+    def to(self, device, *args, **kwargs):
+        self.device = device
+        for processor in self.processors:
+            processor.to(device)
+        return super().to(device, *args, **kwargs)

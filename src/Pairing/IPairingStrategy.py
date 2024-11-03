@@ -80,22 +80,18 @@ class IPairingStrategy:
             pred = pred.cpu()
             gt = gt.cpu()
             pred_batch_ind = pred_batch_ind.cpu()
+            pred_part_ind = pred_part_ind.cpu()
             gt_batch_ind = gt_batch_ind.cpu()
+            gt_part_ind = gt_part_ind.cpu()
 
         # Create lists of batch predictions and ground truths
         num_batches = IPairingStrategy._get_max_ind(gt_batch_ind, pred_batch_ind)
 
         if pred_part_ind is None or gt_part_ind is None:
-            sorted_pred_inds = torch.argsort(pred_batch_ind)
-            sorted_gt_inds = torch.argsort(gt_batch_ind)
-
             pred_list = [pred[pred_batch_ind == i] for i in range(num_batches)]
             gt_list = [gt[gt_batch_ind == i] for i in range(num_batches)]
         else:
             num_parts = IPairingStrategy._get_max_ind(gt_part_ind, pred_part_ind)
-
-            sorted_pred_inds = torch.argsort(pred_batch_ind * num_parts + pred_part_ind)
-            sorted_gt_inds = torch.argsort(gt_batch_ind * num_parts + gt_part_ind)
 
             pred_list = [
                 pred[(pred_batch_ind == i) & (pred_part_ind == j)]
@@ -115,15 +111,14 @@ class IPairingStrategy:
 
         pairs = torch.cat(pairs_list, dim=0)
 
-        pairs[sorted_pred_inds, 0] = pairs[:, 0]
-        pairs[sorted_gt_inds, 1] = pairs[:, 1]
-
         if original_device == "mps":
-            pred = pred.to("mps")
-            gt = gt.to("mps")
-            pred_batch_ind = pred_batch_ind.to("mps")
-            gt_batch_ind = gt_batch_ind.to("mps")
-            pairs = pairs.to("mps")
+            pred = pred.to(original_device)
+            gt = gt.to(original_device)
+            pred_batch_ind = pred_batch_ind.to(original_device)
+            pred_part_ind = pred_part_ind.to(original_device)
+            gt_batch_ind = gt_batch_ind.to(original_device)
+            gt_part_ind = gt_part_ind.to(original_device)
+            pairs = pairs.to(original_device)
 
         return pairs, torch.tensor([len(p) for p in pairs_list], device=pred.device)
 

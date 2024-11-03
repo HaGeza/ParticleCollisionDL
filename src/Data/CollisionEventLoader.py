@@ -104,7 +104,7 @@ class CollisionEventLoader(IDataLoader):
 
     def get_gt_size(
         self, gt_tensor: Tensor, gt_batch_index: Tensor, t: int, use_shell_parts: bool = True, events: list[str] = []
-    ) -> tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor, Tensor]:
         if use_shell_parts:
             part_ids = self.time_step.assign_to_shell_parts(gt_tensor, t, self.coordinate_system)
             num_parts = self.time_step.get_num_shell_parts(t)
@@ -113,13 +113,18 @@ class CollisionEventLoader(IDataLoader):
             batch_part_ids = gt_batch_index * num_parts + part_ids
             _, gt_size = torch.unique(batch_part_ids, return_counts=True)
 
+            # Sort the ground truth sizes by batch and part id
+            part_id_sorted_inds = torch.argsort(batch_part_ids)
+            part_ids = part_ids[part_id_sorted_inds]
+            gt_tensor = gt_tensor[part_id_sorted_inds]
+
             gt_size = F.pad(gt_size, (0, num_parts * batch_size - gt_size.size(0)), value=0)
             gt_size = gt_size.view(batch_size, num_parts)
 
-            return gt_size.float().to(self.device), part_ids
+            return gt_size.float().to(self.device), part_ids, gt_tensor
 
         _, gt_size = torch.unique(gt_batch_index, return_counts=True)
-        return gt_size.float().to(self.device), torch.tensor([])
+        return gt_size.float().to(self.device), torch.tensor([]), gt_tensor
 
     def iter_events(self, events: list[str]) -> Iterator[tuple[list[Tensor], list[Tensor], list[str]]]:
         hits_tensor_list, batch_index_list = self._reset_batch()
