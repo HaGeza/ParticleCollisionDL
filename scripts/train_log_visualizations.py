@@ -15,6 +15,40 @@ COLOR_PALETTE = ["D4A5A5", "FFB3BA", "FFDFBA", "BAE1FF", "B5E7A0", "C3B1E1", "BA
 COLOR_PALETTE = [tuple(int(color[i : i + 2], 16) / 255.0 for i in (0, 2, 4)) for color in COLOR_PALETTE]
 
 
+# Set default font size for various elements
+def set_medium_font_size():
+    plt.rcParams.update(
+        {
+            "font.size": 14,
+            "axes.titlesize": 16,
+            "axes.labelsize": 14,
+            "xtick.labelsize": 12,
+            "ytick.labelsize": 12,
+            "legend.fontsize": 12,
+            "figure.titlesize": 18,
+        }
+    )
+
+
+def set_large_font_size():
+    plt.rcParams.update(
+        {
+            "font.size": 18,
+            "axes.titlesize": 20,
+            "axes.labelsize": 18,
+            "xtick.labelsize": 15,
+            "ytick.labelsize": 15,
+            "legend.fontsize": 15,
+            "figure.titlesize": 22,
+        }
+    )
+
+
+set_medium_font_size()
+
+LINE_WIDTH = 2
+
+
 def add_event_id_padding(
     df: pd.DataFrame,
     event_key: str = TrainingRunIO.EVENT_KEY,
@@ -89,9 +123,10 @@ def plot_loss(log: pd.DataFrame, figures_dir: str):
     loss_field = TrainingRunIO.LOSS_FIELD
     loss_log = log.loc[:, [epoch_field, loss_field]]
 
+    set_large_font_size()
     plt.figure(figsize=(10, 6))
-    plt.plot(loss_log[epoch_field], loss_log[loss_field], marker="o", color=COLOR_PALETTE[1])
-    plt.title("Loss per Epoch")
+    plt.plot(loss_log[epoch_field], loss_log[loss_field], marker="o", color=COLOR_PALETTE[1], linewidth=LINE_WIDTH)
+    # plt.title("Loss per Epoch")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.grid(True)
@@ -99,6 +134,7 @@ def plot_loss(log: pd.DataFrame, figures_dir: str):
     plt.tight_layout()
     plt.savefig(os.path.join(figures_dir, "loss.png"), dpi=300)
     plt.close()
+    set_medium_font_size()
 
 
 def plot_shell_metrics(log: pd.DataFrame, figures_dir: str, metric: str, metric_text: str):
@@ -118,7 +154,7 @@ def plot_shell_metrics(log: pd.DataFrame, figures_dir: str, metric: str, metric_
     def create_fig(save_path: str):
         plt.xlabel("Epochs")
         plt.ylabel(metric_text)
-        plt.title(f"{metric_u} per Shell Across Epochs {skip_start} to {num_epochs}")
+        # plt.title(f"{metric_u} per Shell Across Epochs {skip_start} to {num_epochs}")
         plt.legend(title="Shells")
         plt.grid(True)
 
@@ -130,26 +166,48 @@ def plot_shell_metrics(log: pd.DataFrame, figures_dir: str, metric: str, metric_
         dataset_keys = ["train", "val"]
         dataset_avgs = {key: [] for key in dataset_keys}
         for value in dataset_keys:
+            set_large_font_size()
             plt.figure(figsize=(10, 6))
 
             for i in range(1, nr_shells + 1):
                 metric_field = f"{metric}_{value}_{i}"
                 metric_log = log.loc[skip_start:, [epoch_field, metric_field]]
                 metric_log[metric_field] = clamp_outliers(metric_log, metric_field, 3)
-                plt.plot(metric_log[epoch_field], metric_log[metric_field], label=i, color=COLOR_PALETTE[i])
+                plt.plot(
+                    metric_log[epoch_field],
+                    metric_log[metric_field],
+                    label=i,
+                    color=COLOR_PALETTE[i],
+                    linewidth=LINE_WIDTH,
+                )
 
                 if len(dataset_avgs[value]) == 0:
                     dataset_avgs[value] = metric_log[metric_field]
                 else:
                     dataset_avgs[value] += metric_log[metric_field]
             dataset_avgs[value] /= nr_shells - 1
+            plt.xticks(range(skip_start, num_epochs, num_epochs // 10))
 
             create_fig(os.path.join(figures_dir, f"{metric_u}_per_shell_{value}_from_{skip_start}.png"))
 
+        set_medium_font_size()
         plt.plot(
-            dataset_avgs["train"], label=f"Train Avg {metric_u}", color=COLOR_PALETTE[1], linestyle="-", marker="o"
+            dataset_avgs["train"],
+            label=f"Train Avg {metric_u}",
+            color=COLOR_PALETTE[1],
+            linestyle="-",
+            marker="o",
+            linewidth=LINE_WIDTH,
         )
-        plt.plot(dataset_avgs["val"], label=f"Val Avg {metric_u}", color=COLOR_PALETTE[2], linestyle="--", marker="s")
+        plt.plot(
+            dataset_avgs["val"],
+            label=f"Val Avg {metric_u}",
+            color=COLOR_PALETTE[2],
+            linestyle="--",
+            marker="s",
+            linewidth=LINE_WIDTH,
+        )
+        plt.xticks(range(skip_start, num_epochs, num_epochs // 10))
         create_fig(os.path.join(figures_dir, f"{metric_u}_from_{skip_start}.png"))
 
 
@@ -216,12 +274,12 @@ if __name__ == "__main__":
 
     for run_id in args.run_ids:
         run_dir = os.path.join(args.runs_dir, run_id)
-        train_log = pd.read_csv(os.path.join(run_dir, TrainingRunIO.TRAIN_LOG_FILE))
         eval_log = pd.read_csv(os.path.join(run_dir, TrainingRunIO.EVAL_LOG_FILE))
 
         # Shift rows for missing batch entries
-        train_log = add_event_id_padding(df=train_log, shift=False)
         if args.modify:
+            train_log = pd.read_csv(os.path.join(run_dir, TrainingRunIO.TRAIN_LOG_FILE))
+            train_log = add_event_id_padding(df=train_log, shift=False)
             train_log.to_csv(os.path.join(run_dir, TrainingRunIO.TRAIN_LOG_FILE))
 
         figures_dir = os.path.join(run_dir, "figures")

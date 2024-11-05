@@ -36,15 +36,17 @@ class HSGMLosses:
         yield self.set_loss.item()
         yield self.total_loss.item()
 
-    def set_to_zeros(self):
+    def set_to_zeros(self, device: str = "cpu"):
         """
         Set all losses to zero.
+
+        :param str device: Device to set the losses on.
         """
 
-        self.encoder_loss = torch.tensor(0.0)
-        self.size_loss = torch.tensor(0.0)
-        self.set_loss = torch.tensor(0.0)
-        self.total_loss = torch.tensor(0.0)
+        self.encoder_loss = torch.tensor(0.0, device=device)
+        self.size_loss = torch.tensor(0.0, device=device)
+        self.set_loss = torch.tensor(0.0, device=device)
+        self.total_loss = torch.tensor(0.0, device=device)
 
 
 class HitSetGenerativeModel(nn.Module):
@@ -120,8 +122,6 @@ class HitSetGenerativeModel(nn.Module):
         self.use_shell_part_sizes = use_shell_part_sizes
         self.input_dim = input_dim
         self.encoding_dim = encoding_dim
-        self.device = device
-        self.to(device)
 
         self.information = {
             "encoder": encoder_type.value,
@@ -219,6 +219,9 @@ class HitSetGenerativeModel(nn.Module):
                         t, num_steps, beta_schedule, processor, input_dim, num_layers, use_reverse_posterior, device
                     )
                 )
+
+        self.device = device
+        self.to(device)
 
     def _create_ddpm_set_generator(
         self,

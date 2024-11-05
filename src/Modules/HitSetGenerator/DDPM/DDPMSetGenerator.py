@@ -69,6 +69,9 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         self.processors = nn.ModuleList(denoising_processors)
         self.gnn_processor_used = gnn_processor_used
 
+        self.device = device
+        self.to(device)
+
     def _add_noise(self, x: Tensor, step: int) -> Tensor:
         """
         Add noise to the input tensor.

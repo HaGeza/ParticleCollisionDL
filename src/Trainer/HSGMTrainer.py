@@ -161,7 +161,7 @@ class Trainer:
 
         for epoch in trange(self.start_epoch, self.epochs):
             mean_losses = HSGMLosses(0, 0, 0, 0)
-            mean_losses.set_to_zeros()
+            mean_losses.set_to_zeros(self.device)
             num_entries = 0
 
             for entry in tqdm(self.data_loader, desc=f"Epoch {epoch + 1}/{self.epochs}", leave=False):

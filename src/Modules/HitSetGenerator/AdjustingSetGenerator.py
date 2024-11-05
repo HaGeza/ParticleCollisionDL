@@ -25,7 +25,7 @@ class AdjustingSetGenerator(IHitSetGenerator):
         time_step: ITimeStepForAdjusting,
         pairing_strategy_type: PairingStrategyEnum,
         coordinate_system: CoordinateSystemEnum,
-        device: str = "cpu",
+        _device: str = "cpu",
     ):
         """
         Constructor for the adjusting set generator.
@@ -40,9 +40,6 @@ class AdjustingSetGenerator(IHitSetGenerator):
         """
 
         super().__init__()
-
-        self.device = device
-        self.to(device)
 
         self.t = t
         self.time_step = time_step
