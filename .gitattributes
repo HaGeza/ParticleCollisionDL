@@ -1,3 +1,5 @@
 results/tla9z1ql filter=lfs diff=lfs merge=lfs -text
 results/tla9z1ql/* filter=lfs diff=lfs merge=lfs -text
 data/precomputed.zip filter=lfs diff=lfs merge=lfs -text
+notebooks/plot_hits_out/data.zip filter=lfs diff=lfs merge=lfs -text
+runs/runs.zip filter=lfs diff=lfs merge=lfs -text
