@@ -1,22 +1,15 @@
-import csv
-from datetime import datetime
-import json
-import os
-import random
-import re
-import string
 from tqdm import tqdm, trange
 
-import numpy as np
 from scipy.spatial.distance import directed_hausdorff
 import torch
 from torch import Tensor
-from torch.nn import functional as F
 from torch.optim import lr_scheduler, Optimizer
 
 from src.Data import IDataLoader
-from src.Util.Paths import MODELS_DIR, RESULTS_DIR
-from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel
+from src.Trainer.TrainingRunIO import TrainingRunIO
+from src.Modules.HitSetGenerativeModel import HitSetGenerativeModel, HSGMLosses
+from src.Util import CoordinateSystemEnum
+from src.Util.CoordinateSystemFuncs import convert_to_cartesian
 
 
 class Trainer:
@@ -24,61 +17,53 @@ class Trainer:
     Trainer class for training a `HitSetGenerativeModel`s
     """
 
-    MODEL_KEY_LENGTH = 8
-
-    @staticmethod
-    def _generate_model_name() -> str:
-        """
-        Generate a random model name
-
-        :return str: The model name
-        """
-
-        return "".join(random.choice(string.ascii_lowercase + string.digits) for _ in range(Trainer.MODEL_KEY_LENGTH))
-
-    def _find_existing_models(self) -> list[str]:
-        """
-        Find existing models in the models directory
-
-        :return list[str]: The list of existing models
-        """
-
-        files = os.listdir(self.models_path)
-        pattern = re.compile(f"^[a-z0-9]{{{Trainer.MODEL_KEY_LENGTH}}}$")
-        return [f for f in files if pattern.match(f)]
+    DEFAULT_ENCODER_LOSS_W = 0.001
+    DEFAULT_SIZE_LOSS_W = 200.0
 
     def __init__(
         self,
         model: HitSetGenerativeModel,
         optimizer: Optimizer,
         scheduler: lr_scheduler._LRScheduler,
+        data_loader: IDataLoader,
+        run_io: TrainingRunIO,
+        start_epoch: int = 0,
+        epochs: int = 100,
+        encoder_loss_weight: float = DEFAULT_ENCODER_LOSS_W,
+        size_loss_weight: float = DEFAULT_SIZE_LOSS_W,
         device: str = "cpu",
-        size_loss_weight: float = 0.01,
-        models_path: str = MODELS_DIR,
-        results_path: str = RESULTS_DIR,
     ):
         """
         :param HitSetGenerativeModel model: The model to train
         :param Optimizer optimizer: The optimizer to use
         :param lr_scheduler._LRScheduler scheduler: The learning rate scheduler to use
-        :param str device: The device to use
+        :param IDataLoader data_loader: The data loader to use
+        :param TrainingRunIO run_io: The run IO to use for logging and saving models
+        :param int start_epoch: The epoch to start training from
+        :param int epochs: The number of epochs to train for
+        :param float encoder_loss_weight: The weight to give to the encoder loss
         :param float size_loss_weight: The weight to give to the size loss
+        :param str device: The device to use
         :param str models_path: The path to save the models
-        :param str results_path: The path to save the results
         """
 
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
-        self.device = device
+        self.data_loader = data_loader
+        self.run_io = run_io
+        self.start_epoch = start_epoch
+        self.epochs = epochs
+        self.encoder_loss_weight = encoder_loss_weight
         self.size_loss_weight = size_loss_weight
-        self.models_path = models_path
-        self.results_path = results_path
+        self.device = device
 
         if model.device != device:
             model.to(device)
 
-    def _get_hausdorff_distance(self, pred_tensor: Tensor, gt_tensor: Tensor) -> Tensor:
+    def _get_hausdorff_distance(
+        self, pred_tensor: Tensor, gt_tensor: Tensor, coordinate_system: CoordinateSystemEnum
+    ) -> Tensor:
         """
         Calculate the Hausdorff distance between the predicted and ground truth hit sets.
 
@@ -90,14 +75,17 @@ class Trainer:
         if pred_tensor.size(0) == 0 or gt_tensor.size(0) == 0:
             return torch.tensor(0.0, dtype=torch.float32, device=self.device)
 
-        if pred_tensor.device.type != "cuda":
-            pred_hits = pred_tensor.cpu().numpy()
-            gt_hits = gt_tensor.cpu().numpy()
+        pred_cart = convert_to_cartesian(pred_tensor, coordinate_system)
+        gt_cart = convert_to_cartesian(gt_tensor, coordinate_system)
+
+        if pred_cart.device.type != "cuda":
+            pred_hits = pred_cart.cpu().numpy()
+            gt_hits = gt_cart.cpu().numpy()
 
             pred_to_gt = directed_hausdorff(pred_hits, gt_hits)[0]
             gt_to_pred = directed_hausdorff(gt_hits, pred_hits)[0]
         else:
-            dists = torch.cdist(pred_tensor, gt_tensor, p=2)
+            dists = torch.cdist(pred_cart, gt_cart, p=2)
             pred_to_gt = torch.min(dists, dim=1)[0].max(dim=0)[0].item()
             gt_to_pred = torch.min(dists, dim=0)[0].max(dim=0)[0].item()
 
@@ -129,12 +117,11 @@ class Trainer:
                 gt_tensor = hits_tensor_list[t][:, :in_dim]
 
                 gt_batch_index = batch_index_list[t].detach()
-                gt_size, _ = data_loader.get_gt_size(gt_tensor, gt_batch_index, t, events=event_ids)
+                gt_size, _, gt_tensor = data_loader.get_gt_size(gt_tensor, gt_batch_index, t, events=event_ids)
                 B = gt_size.size(0)
 
-                pred_size, pred_tensor = self.model.generate(in_tensor, in_batch_index, t, batch_size=B)
+                pred_size, pred_tensor, used_size = self.model.generate(in_tensor, in_batch_index, t, batch_size=B)
 
-                used_size = torch.clamp(pred_size, min=0.0).round().int()
                 if used_size.dim() > 1:
                     used_size = used_size.sum(dim=1)
 
@@ -144,166 +131,109 @@ class Trainer:
                     )
                     for b in range(B):
                         hds[t - 1] += self._get_hausdorff_distance(
-                            pred_tensor[pred_batch_index == b], gt_tensor[gt_batch_index == b]
+                            pred_tensor[pred_batch_index == b],
+                            gt_tensor[gt_batch_index == b],
+                            self.model.coordinate_system,
                         ).item()
                 else:
                     pred_batch_index = torch.tensor([], device=self.device, dtype=torch.long)
 
-                mses[t - 1] += F.mse_loss(pred_size, gt_size).item()
+                mses[t - 1] += self.model.size_generators[t - 1].calc_loss(pred_size, gt_size).item()
                 num_entries += B
 
                 in_tensor = pred_tensor
                 in_batch_index = pred_batch_index
 
+        num_entries = max(num_entries, 1)
         return [hd / num_entries for hd in hds], [mse / num_entries for mse in mses]
 
-    def train_and_eval(
-        self,
-        epochs: int,
-        data_loader: IDataLoader,
-        no_log: bool = False,
-    ):
+    def train_and_eval(self):
         """
         Train and evaluate the model using the given data loader.
-
-        :param int epochs: The number of epochs to train for
-        :param IDataLoader data_loader: The data loader to use
-        :param bool no_log: Whether to log the training progress
         """
 
         if self.model.device != self.device:
             self.model.to(self.device)
 
-        T = self.model.time_step.get_num_time_steps()
-        B = data_loader.get_batch_size()
-
-        # Set up directories
-        os.makedirs(self.models_path, exist_ok=True)
-
-        model_name = self._generate_model_name()
-        while model_name in self._find_existing_models():
-            model_name = self._generate_model_name()
-
-        model_dir = os.path.join(self.models_path, model_name)
-        os.makedirs(model_dir, exist_ok=True)
-        result_dir = os.path.join(self.results_path, model_name)
-        os.makedirs(result_dir, exist_ok=True)
-
-        # Set up info file
-        info_file = os.path.join(result_dir, "info.json")
-        with open(info_file, "w") as f:
-            model_info = self.model.information
-            training_info = {
-                "model_name": model_name,
-                "epochs": epochs,
-                "batch_size": B,
-                "device": str(self.device),
-                "size_loss_weight": self.size_loss_weight,
-                "optimizer_type": self.optimizer.__class__.__name__,
-                "scheduler_type": self.scheduler.__class__.__name__,
-                "learning_rate": self.optimizer.param_groups[0]["lr"],
-                "date": datetime.today().strftime("%Y:%m:%d_%H:%M:%S"),
-            }
-            json.dump({"model": model_info, "training": training_info}, f, indent=4)
-
-        # Create log files
-        if not no_log:
-            # Create log of training progress
-            train_log = os.path.join(result_dir, "train_log.csv")
-            with open(train_log, "w") as f:
-                row = ["epoch", "t"]
-                row += [f"event_{i}" for i in range(B)]
-                row += ["size_loss", "set_loss", "loss"]
-
-                if not self.model.use_shell_part_sizes:
-                    row += [f"pred_size_{i}" for i in range(B)]
-                    row += [f"gt_size_{i}" for i in range(B)]
-                    num_size_preds = B
-                else:
-                    max_num_parts = np.max([self.model.time_step.get_num_shell_parts(t) for t in range(1, T)])
-                    row += [f"pred_size_{i}_{j}" for i in range(B) for j in range(max_num_parts)]
-                    row += [f"gt_size_{i}_{j}" for i in range(B) for j in range(max_num_parts)]
-                    num_size_preds = B * max_num_parts
-                csv.writer(f).writerow(row)
-
-            # Create log of evaluation metrics
-            eval_log = os.path.join(result_dir, "eval_log.csv")
-            with open(eval_log, "w") as f:
-                row = ["epoch", "loss"] + [
-                    f"{m}_{s}_{t}" for t in range(1, T) for m in ["mse", "hd"] for s in ["train", "val"]
-                ]
-                csv.writer(f).writerow(row)
-
         # Main training loop
         min_loss = float("inf")
         self.model.train()
 
-        for epoch in trange(epochs):
-            loss_mean = 0
+        for epoch in trange(self.start_epoch, self.epochs):
+            mean_losses = HSGMLosses(0, 0, 0, 0)
+            mean_losses.set_to_zeros(self.device)
             num_entries = 0
 
-            for entry in tqdm(data_loader, desc=f"Epoch {epoch + 1}/{epochs}", leave=False):
+            for entry in tqdm(self.data_loader, desc=f"Epoch {epoch + 1}/{self.epochs}", leave=False):
                 hits_tensor_list, batch_index_list, event_ids = entry
 
                 in_tensor = hits_tensor_list[0]
                 in_batch_index = batch_index_list[0].detach()
                 in_dim = in_tensor.size(1)
 
-                for t in trange(1, T, leave=False, desc="Time steps"):
+                for t in trange(1, self.model.time_step.get_num_time_steps(), leave=False, desc="Time steps"):
                     gt_tensor = hits_tensor_list[t][:, :in_dim]
                     initial_pred = hits_tensor_list[t][:, in_dim:]
 
                     gt_batch_index = batch_index_list[t].detach()
-                    gt_size, _ = data_loader.get_gt_size(gt_tensor, gt_batch_index, t, events=event_ids)
+                    gt_size, _, gt_tensor = self.data_loader.get_gt_size(
+                        gt_tensor, gt_batch_index, t, events=event_ids
+                    )
 
                     self.optimizer.zero_grad()
 
-                    pred_size, pred_tensor, size_loss, set_loss = self.model(
+                    pred_size, _pred_tensor, losses = self.model(
                         in_tensor, gt_tensor, in_batch_index, gt_batch_index, gt_size, t, initial_pred
                     )
 
-                    loss = size_loss * self.size_loss_weight + set_loss
-                    loss.backward()
+                    losses.encoder_loss = losses.encoder_loss * self.encoder_loss_weight
+                    losses.size_loss = losses.size_loss * self.size_loss_weight
+                    losses.total_loss = losses.encoder_loss + losses.size_loss + losses.set_loss
+
+                    losses.total_loss.backward()
                     self.optimizer.step()
 
                     in_tensor = gt_tensor
                     in_batch_index = gt_batch_index
 
-                    loss_mean += loss.item()
+                    mean_losses.encoder_loss += losses.encoder_loss
+                    mean_losses.size_loss += losses.size_loss
+                    mean_losses.set_loss += losses.set_loss
+                    mean_losses.total_loss += losses.total_loss
                     num_entries += gt_size.size(0)
 
-                    if not no_log:
-                        with open(train_log, "a") as f:
-                            row = [epoch, t]
-                            row += event_ids
-                            row += [size_loss.item(), set_loss.item(), loss.item()]
-                            pred_size_flat = pred_size.view(-1).tolist()
-                            padding = [""] * (num_size_preds - len(pred_size_flat))
-                            row += pred_size_flat + padding + gt_size.view(-1).tolist()
-                            csv.writer(f).writerow(row)
+                    if not self.run_io.no_log:
+                        self.run_io.append_to_training_log(
+                            epoch, t, event_ids, losses, pred_size, gt_size, self.data_loader.get_batch_size()
+                        )
 
-                # end of batch
                 self.scheduler.step()
 
             # end of epoch
-            torch.save(self.model.state_dict(), os.path.join(model_dir, f"latest.pth"))
-
             if num_entries > 0:
-                loss_mean = loss_mean / num_entries
+                mean_losses.encoder_loss /= num_entries
+                mean_losses.size_loss /= num_entries
+                mean_losses.set_loss /= num_entries
+                mean_losses.total_loss /= num_entries
 
-            if loss_mean < min_loss:
-                min_loss = loss_mean
-                torch.save(self.model.state_dict(), os.path.join(model_dir, "min_loss.pth"))
+            save_min_loss_model = False
+            if mean_losses.total_loss.item() < min_loss:
+                min_loss = mean_losses.total_loss.item()
+                save_min_loss_model = True
 
-            if not no_log:
+            if not self.run_io.no_log:
                 self.model.eval()
-
                 with torch.no_grad():
-                    hd_train, mse_train = self.evaluate(data_loader, data_loader.train_events)
-                    hd_val, mse_val = self.evaluate(data_loader, data_loader.val_events)
+                    hd_train, mse_train = self.evaluate(self.data_loader, self.data_loader.train_events)
+                    hd_val, mse_val = self.evaluate(self.data_loader, self.data_loader.val_events)
+                self.run_io.append_to_evaluation_log(epoch, mean_losses, hd_train, mse_train, hd_val, mse_val)
 
-                with open(eval_log, "a") as f:
-                    row = [epoch, loss_mean]
-                    for t in range(T - 1):
-                        row += [mse_train[t], mse_val[t], hd_train[t], hd_val[t]]
-                    csv.writer(f).writerow(row)
+            self.run_io.save_checkpoint(
+                epoch + 1,
+                self.model,
+                self.optimizer,
+                self.scheduler,
+                self.encoder_loss_weight,
+                self.size_loss_weight,
+                save_min_loss_model,
+            )

@@ -28,7 +28,14 @@ if __name__ == "__main__":
         for root, dirs, files in os.walk("src"):
             if "__pycache__" in dirs:
                 dirs.remove("__pycache__")  # Exclude __pycache__ directories
+            if ".vscode" in dirs:
+                dirs.remove(".vscode")
+
             for file in files:
+                # Ignore hidden files
+                if file.startswith("."):
+                    continue
+
                 file_path = os.path.join(root, file)
                 zf.write(file_path, os.path.relpath(file_path, os.path.join("src", "..")))
 

@@ -1,12 +1,12 @@
+import torch
+from torch import Tensor
+from pandas import DataFrame, Series
+
 from src.TimeStep.ForAdjusting import ITimeStepForAdjusting
 from src.TimeStep.ForAdjusting.PlacementStrategy import EquidistantStrategy, IPlacementStrategy
 from src.Util import CoordinateSystemEnum
 from .VLRings import VL_TO_RING
 from .VLMaps import get_volume_layer_to_t, get_t_to_volume_layers
-
-import torch
-from torch import Tensor
-from pandas import DataFrame, Series
 
 
 class VLTimeStep(ITimeStepForAdjusting):
@@ -46,7 +46,7 @@ class VLTimeStep(ITimeStepForAdjusting):
                 max_z_max = max(max_z_max, ring[3])
             self.vl_scales[t] = max(max_r_max, (max_z_max - min_z_min) / 2)
 
-    def map_vl_to_t(self, row: Series) -> int:
+    def _map_vl_to_t(self, row: Series) -> int:
         """
         Maps a volume-layer pair to a time-step.
 
@@ -57,21 +57,9 @@ class VLTimeStep(ITimeStepForAdjusting):
         return self.vl_to_t[row["volume_id"]][row["layer_id"]]
 
     def define_time_step(self, hits: DataFrame):
-        """
-        Defines the time-step for each hit in the DataFrame.
-
-        :param pandas.DataFrame hits: The hits DataFrame.
-        """
-
-        hits["t"] = hits.apply(self.map_vl_to_t, axis=1)
+        hits["t"] = hits.apply(self._map_vl_to_t, axis=1)
 
     def get_num_time_steps(self) -> int:
-        """
-        Returns the number of time-steps.
-
-        :return: The number of time-steps.
-        """
-
         return self.num_t
 
     def _get_rings(self, t: int, device: str = "cpu") -> Tensor:
@@ -121,40 +109,23 @@ class VLTimeStep(ITimeStepForAdjusting):
         return self.normalize_hit_tensor(hits, t, coordinate_system) if self.normalize_hits else hits
 
     def normalize_hit_tensor(self, hit_tensor: Tensor, t: int, coordinate_system: CoordinateSystemEnum) -> Tensor:
-        """
-        Normalizes the hit tensor for the given time-step
-
-        :param torch.Tensor hit_tensor: The hit tensor to normalize
-        :param int t: The time-step to normalize the hit tensor for
-        :param CoordinateSystemEnum coordinate_system: The coordinate system used
-        :return: The normalized hit tensor.
-        """
-
         if coordinate_system == CoordinateSystemEnum.CARTESIAN:
             return hit_tensor / self.vl_scales[t]
-        else:  # coordinate_system == CoordinateSystemEnum.CYLINDRICAL
-            normalizer = torch.tensor([self.vl_scales[t], 1.0, self.vl_scales[t]], device=hit_tensor.device)
-            return hit_tensor / normalizer
+        # if coordinate_system == CoordinateSystemEnum.CYLINDRICAL
+        normalizer = torch.tensor([self.vl_scales[t], 1.0, self.vl_scales[t]], device=hit_tensor.device)
+        return hit_tensor / normalizer
+
+    def unnormalize_hit_tensor(self, hit_tensor: Tensor, t: int, coordinate_system: CoordinateSystemEnum) -> Tensor:
+        if coordinate_system == CoordinateSystemEnum.CARTESIAN:
+            return hit_tensor * self.vl_scales[t]
+        # if coordinate_system == CoordinateSystemEnum.CYLINDRICAL
+        normalizer = torch.tensor([self.vl_scales[t], 1.0, self.vl_scales[t]], device=hit_tensor.device)
+        return hit_tensor * normalizer
 
     def get_num_shell_parts(self, t: int) -> int:
-        """
-        Get the number of shell parts for the given time step.
-
-        :param int t: The time step to get the number of shell parts for
-        :return int: The number of shell parts
-        """
-
         return len(self.t_to_vls[t])
 
     def assign_to_shell_parts(self, hit_tensor: Tensor, t: int, coordinate_system: CoordinateSystemEnum) -> Tensor:
-        """
-        Assign a hit set to shell parts for the given time step.
-
-        :param Tensor hit_tensor: The hit tensor to assign to shell parts. Shape `[num_hits, hit_dim]`.
-        :param int t: The time step to assign the hits to shell parts for
-        :return Tensor: The tensor assigning each hit to a shell part. Shape `[num_hits]`.
-        """
-
         if coordinate_system == CoordinateSystemEnum.CARTESIAN:
             rs = torch.sqrt(hit_tensor[:, 0] ** 2 + hit_tensor[:, 1] ** 2)
             zs = hit_tensor[:, 2]

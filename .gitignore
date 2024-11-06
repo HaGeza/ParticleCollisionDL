@@ -1,6 +1,7 @@
 data/*
 figures/*
 models/*
+runs/*
 results/*
 .vscode
 __pycache__
@@ -8,3 +9,4 @@ __pycache__
 venv
 .venv/*
 snellius.zip
+notebooks/plot_hits_out

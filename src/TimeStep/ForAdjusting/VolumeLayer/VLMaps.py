@@ -30,7 +30,7 @@ def get_volume_layer_to_t(map_index: int) -> tuple[dict, int]:
     max_t = max(max(layer_dict.values()) for layer_dict in volume_layer_to_t.values()) + 1
 
     for volume_id, layer_dict in VL_TO_RING.items():
-        for layer_id in layer_dict.keys():
+        for layer_id in layer_dict:
             if volume_id not in volume_layer_to_t:
                 volume_layer_to_t[volume_id] = {layer_id: max_t}
             elif layer_id not in volume_layer_to_t[volume_id]:

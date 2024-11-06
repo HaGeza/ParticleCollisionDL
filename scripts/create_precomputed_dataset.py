@@ -20,7 +20,7 @@ from src.Pairing import (
     VectorizedGreedyStrategy,
 )
 from src.Util import CoordinateSystemEnum
-from src.Util.Paths import DATA_DIR, PRECOMPUTED_DATA_DIR, get_precomputed_data_path
+from src.Util.Paths import DATA_DIR, get_precomputed_data_path
 from src.Util.CoordinateSystemFuncs import convert_to_cartesian
 
 
@@ -93,7 +93,7 @@ if __name__ == "__main__":
         root_dir,
         args.input,
         TimeStepEnum(args.time_step),
-        CoordinateSystemEnum(coord_system),
+        coord_system,
         PlacementStrategyEnum(args.placement_strategy),
         PairingStrategyEnum(args.pairing_strategy),
         use_shell_parts,
@@ -119,7 +119,9 @@ if __name__ == "__main__":
         for t in trange(T, leave=False, desc="Time steps"):
             hits_tensor = hits_tensor_list[t]
             batch_index = batch_index_list[t]
-            size_tensor, part_index = data_loader.get_gt_size(hits_tensor, batch_index, t, use_shell_parts)
+            size_tensor, part_index, hits_tensor = data_loader.get_gt_size(
+                hits_tensor, batch_index, t, use_shell_parts
+            )
             part_index = part_index if use_shell_parts else None
 
             if t > 0:
@@ -153,7 +155,7 @@ if __name__ == "__main__":
 
         for event_id in event_ids:
             with open(out_files[event_id], "w") as f:
-                json.dump(out_dicts[event_id], f, indent=4)
+                json.dump(out_dicts[event_id], f)
 
     with open(os.path.join(out_path, "gt_sizes.json"), "w") as f:
-        json.dump(gt_sizes, f, indent=4)
+        json.dump(gt_sizes, f)

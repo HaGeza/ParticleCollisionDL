@@ -1,6 +1,5 @@
 from typing import Iterator
 from torch import Tensor
-import torch
 
 
 class IDataLoader:
@@ -10,7 +9,7 @@ class IDataLoader:
 
     def get_gt_size(
         self, gt_tensor: Tensor, gt_batch_index: Tensor, t: int, use_shell_parts: bool = True, events: list[str] = []
-    ) -> tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor, Tensor]:
         """
         Calculate ground truth sizes for shells / shell-parts
 
@@ -20,9 +19,10 @@ class IDataLoader:
         :param bool use_shell_part: Whether to use shell parts
         :param str event_id: The event id, no event id is used if empty
         :param list[str] events: The list of event ids
-        :return Tensor: The ground truth sizes with shape `[num_batches]` and an empty tensor
-            if `use_shell_parts` is `True`, or a tuple of the ground truth sizes with shape
-            `[num_batches, num_parts]` and the part ids tensor with shape `[num_hits]` otherwise.
+        :return tuple[Tensor, Tensor, Tensor]: The ground truth sizes with shape `[num_batches]`
+            and an empty tensor if `use_shell_parts` is `True`, or a tuple of the ground truth sizes
+            with shape `[num_batches, num_parts]` and the part ids tensor with shape `[num_hits]`
+            otherwise. The last tensor is the ground truth hit tensor, potentially permuted.
         """
         raise NotImplementedError
 

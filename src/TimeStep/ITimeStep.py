@@ -3,8 +3,6 @@ from torch import Tensor
 
 from src.Util import CoordinateSystemEnum
 
-from src.TimeStep.TimeStepEnum import TimeStepEnum
-
 
 class ITimeStep:
     def define_time_step(self, hits: DataFrame):
@@ -33,6 +31,18 @@ class ITimeStep:
         :param int t: The time step to normalize the hit tensor for
         :param CoordinateSystemEnum coordinate_system: The coordinate system used
         :return Tensor: The normalized hit tensor
+        """
+
+        raise NotImplementedError
+
+    def unnormalize_hit_tensor(self, hit_tensor: Tensor, t: int, coordinate_system: CoordinateSystemEnum) -> Tensor:
+        """
+        Unnormalize the hit tensor for the given time step.
+
+        :param Tensor hit_tensor: The hit tensor to unnormalize
+        :param int t: The time step to unnormalize the hit tensor for
+        :param CoordinateSystemEnum coordinate_system: The coordinate system used
+        :return Tensor: The unnormalized hit tensor
         """
 
         raise NotImplementedError

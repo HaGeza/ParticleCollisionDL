@@ -26,6 +26,7 @@ class IPairingStrategy:
 
         raise NotImplementedError
 
+    @staticmethod
     def _get_max_ind(gt_ind: Tensor, pred_ind: Tensor) -> int:
         """
         Get the maximum index from the ground truth and predicted indices.
@@ -59,9 +60,9 @@ class IPairingStrategy:
         :param Tensor gt_part_ind: Ground truth hit part index tensor. `None` or tensor with shape `[num_hits_next]`.
         :param bool paired: Whether the pairing is precomputed
         :return tuple[Tensor, Tensor]: A tuple containing two Tensors:
-            1. Pairing tensor. Shape `[sum(min(num_hits_batch_i, num_hits_next_batch_i)), 2]`
-            2. Number of pairs per batch or per batch-part combination. Shape `[num_batches]`
-                or `[num_batches * num_parts]`.
+        1. Pairing tensor. Shape `[sum(min(num_hits_batch_i, num_hits_next_batch_i)), 2]`
+        2. Number of pairs per batch or per batch-part combination. Shape `[num_batches]`
+            or `[num_batches * num_parts]`.
         """
 
         if paired:
@@ -79,22 +80,18 @@ class IPairingStrategy:
             pred = pred.cpu()
             gt = gt.cpu()
             pred_batch_ind = pred_batch_ind.cpu()
+            pred_part_ind = pred_part_ind.cpu()
             gt_batch_ind = gt_batch_ind.cpu()
+            gt_part_ind = gt_part_ind.cpu()
 
         # Create lists of batch predictions and ground truths
         num_batches = IPairingStrategy._get_max_ind(gt_batch_ind, pred_batch_ind)
 
         if pred_part_ind is None or gt_part_ind is None:
-            sorted_pred_inds = torch.argsort(pred_batch_ind)
-            sorted_gt_inds = torch.argsort(gt_batch_ind)
-
             pred_list = [pred[pred_batch_ind == i] for i in range(num_batches)]
             gt_list = [gt[gt_batch_ind == i] for i in range(num_batches)]
         else:
             num_parts = IPairingStrategy._get_max_ind(gt_part_ind, pred_part_ind)
-
-            sorted_pred_inds = torch.argsort(pred_batch_ind * num_parts + pred_part_ind)
-            sorted_gt_inds = torch.argsort(gt_batch_ind * num_parts + gt_part_ind)
 
             pred_list = [
                 pred[(pred_batch_ind == i) & (pred_part_ind == j)]
@@ -114,15 +111,14 @@ class IPairingStrategy:
 
         pairs = torch.cat(pairs_list, dim=0)
 
-        pairs[sorted_pred_inds, 0] = pairs[:, 0]
-        pairs[sorted_gt_inds, 1] = pairs[:, 1]
-
         if original_device == "mps":
-            pred = pred.to("mps")
-            gt = gt.to("mps")
-            pred_batch_ind = pred_batch_ind.to("mps")
-            gt_batch_ind = gt_batch_ind.to("mps")
-            pairs = pairs.to("mps")
+            pred = pred.to(original_device)
+            gt = gt.to(original_device)
+            pred_batch_ind = pred_batch_ind.to(original_device)
+            pred_part_ind = pred_part_ind.to(original_device)
+            gt_batch_ind = gt_batch_ind.to(original_device)
+            gt_part_ind = gt_part_ind.to(original_device)
+            pairs = pairs.to(original_device)
 
         return pairs, torch.tensor([len(p) for p in pairs_list], device=pred.device)
 
@@ -157,6 +153,6 @@ class IPairingStrategy:
         diffs = torch.sum((pred_cart[pairs[:, 0]] - gt_cart[pairs[:, 1]]) ** 2, dim=1)
         if reduction == "mean":
             return diffs.mean() if len(diffs) > 0 else torch.tensor(0.0, device=pred.device)
-        elif reduction == "sum":
+        if reduction == "sum":
             return diffs.sum()
         return diffs

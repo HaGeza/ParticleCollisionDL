@@ -29,7 +29,8 @@ class SinusoidStrategy(IPlacementStrategy):
         Place points within rings using a squeezed sinusoid strategy.
 
         :param Tensor rings: Tensor of shape `[num_rings, 4]` containing the rings.
-        :param Tensor ring_capacities: Tensor of shape `[num_batches, num_rings]` containing the number of points to place in each ring.
+        :param Tensor ring_capacities: Tensor of shape `[num_batches, num_rings]` containing
+            the number of points to place in each ring.
         :param CoordinateSystemEnum coordinate_system: The coordinate system to use.
         :return: Tensor of shape `[sum(ring_capacities), 3]` containing the placed points.
         """
