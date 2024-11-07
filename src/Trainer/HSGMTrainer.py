@@ -129,20 +129,25 @@ class Trainer:
                     pred_batch_index = torch.repeat_interleave(
                         torch.arange(len(used_size), device=self.device), used_size
                     )
-                    for b in range(B):
-                        hds[t - 1] += self._get_hausdorff_distance(
-                            pred_tensor[pred_batch_index == b],
-                            gt_tensor[gt_batch_index == b],
-                            self.model.coordinate_system,
-                        ).item()
+                    if self.model.set_generators[t - 1] is not None:
+                        for b in range(B):
+                            hds[t - 1] += self._get_hausdorff_distance(
+                                pred_tensor[pred_batch_index == b],
+                                gt_tensor[gt_batch_index == b],
+                                self.model.coordinate_system,
+                            ).item()
                 else:
                     pred_batch_index = torch.tensor([], device=self.device, dtype=torch.long)
 
                 mses[t - 1] += self.model.size_generators[t - 1].calc_loss(pred_size, gt_size).item()
                 num_entries += B
 
-                in_tensor = pred_tensor
-                in_batch_index = pred_batch_index
+                if self.model.set_generators[t - 1] is not None:
+                    in_tensor = pred_tensor
+                    in_batch_index = pred_batch_index
+                else:
+                    in_tensor = gt_tensor
+                    in_batch_index = gt_batch_index
 
         num_entries = max(num_entries, 1)
         return [hd / num_entries for hd in hds], [mse / num_entries for mse in mses]

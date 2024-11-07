@@ -41,13 +41,7 @@ class DDPMSetGenerator(AdjustingSetGenerator):
         :param str device: Device to load the data on.
         """
 
-        super().__init__(
-            t,
-            time_step,
-            pairing_strategy_type,
-            coordinate_system,
-            device,
-        )
+        super().__init__(t, time_step, pairing_strategy_type, coordinate_system)
 
         assert num_steps > 0, "Number of denoising steps must be greater than 0"
 

@@ -3,6 +3,7 @@ import sys
 import argparse
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 sys.path.append(os.path.abspath(os.path.join(os.getcwd(), ".")))
@@ -137,7 +138,7 @@ def plot_loss(log: pd.DataFrame, figures_dir: str):
     set_medium_font_size()
 
 
-def plot_shell_metrics(log: pd.DataFrame, figures_dir: str, metric: str, metric_text: str):
+def plot_shell_metrics(log: pd.DataFrame, figures_dir: str, metric: str, metric_text: str, use_log: bool = True):
     """
     Plots the metric curves for both the train and eval values of the eval.log per epoch
 
@@ -145,6 +146,7 @@ def plot_shell_metrics(log: pd.DataFrame, figures_dir: str, metric: str, metric_
     :param figures_dir str: The directory of the run figures
     :param metric str: The metric to plot
     :param metric_text str: The text to display for the metric
+    :param use_log bool: Whether to use the log of the metric
     """
     nr_shells = len([col for col in log.columns if "mse_train_" in col])
     epoch_field = TrainingRunIO.EPOCH_FIELD
@@ -153,7 +155,7 @@ def plot_shell_metrics(log: pd.DataFrame, figures_dir: str, metric: str, metric_
 
     def create_fig(save_path: str):
         plt.xlabel("Epochs")
-        plt.ylabel(metric_text)
+        plt.ylabel(f"Log {metric_text}" if use_log else metric_text)
         # plt.title(f"{metric_u} per Shell Across Epochs {skip_start} to {num_epochs}")
         plt.legend(title="Shells")
         plt.grid(True)
@@ -173,13 +175,9 @@ def plot_shell_metrics(log: pd.DataFrame, figures_dir: str, metric: str, metric_
                 metric_field = f"{metric}_{value}_{i}"
                 metric_log = log.loc[skip_start:, [epoch_field, metric_field]]
                 metric_log[metric_field] = clamp_outliers(metric_log, metric_field, 3)
-                plt.plot(
-                    metric_log[epoch_field],
-                    metric_log[metric_field],
-                    label=i,
-                    color=COLOR_PALETTE[i],
-                    linewidth=LINE_WIDTH,
-                )
+
+                values = np.log10(metric_log[metric_field]) if use_log else metric_log[metric_field]
+                plt.plot(metric_log[epoch_field], values, label=i, color=COLOR_PALETTE[i], linewidth=LINE_WIDTH)
 
                 if len(dataset_avgs[value]) == 0:
                     dataset_avgs[value] = metric_log[metric_field]
@@ -191,18 +189,20 @@ def plot_shell_metrics(log: pd.DataFrame, figures_dir: str, metric: str, metric_
             create_fig(os.path.join(figures_dir, f"{metric_u}_per_shell_{value}_from_{skip_start}.png"))
 
         set_medium_font_size()
+        values = np.log10(dataset_avgs["train"]) if use_log else dataset_avgs["train"]
         plt.plot(
-            dataset_avgs["train"],
+            values,
             label=f"Train Avg {metric_u}",
-            color=COLOR_PALETTE[1],
+            color=COLOR_PALETTE[2],
             linestyle="-",
             marker="o",
             linewidth=LINE_WIDTH,
         )
+        values = np.log10(dataset_avgs["val"]) if use_log else dataset_avgs["val"]
         plt.plot(
-            dataset_avgs["val"],
+            values,
             label=f"Val Avg {metric_u}",
-            color=COLOR_PALETTE[2],
+            color=COLOR_PALETTE[3],
             linestyle="--",
             marker="s",
             linewidth=LINE_WIDTH,
@@ -211,24 +211,30 @@ def plot_shell_metrics(log: pd.DataFrame, figures_dir: str, metric: str, metric_
         create_fig(os.path.join(figures_dir, f"{metric_u}_from_{skip_start}.png"))
 
 
-def plot_mse_shells(log: pd.DataFrame, figures_dir: str):
+def plot_mse_shells(log: pd.DataFrame, figures_dir: str, use_log: bool):
     """
     Plots the MSE curves for both the train and eval values of the eval.log per epoch
 
     :param log pd.Dataframe: Dataframe containing the loss values
     :param figures_dir str: The directory of the run figures
+    :param use_log bool: Whether to use the log of the metric
     """
-    plot_shell_metrics(log=log, figures_dir=figures_dir, metric="mse", metric_text="Mean Squared Error (MSE)")
+    plot_shell_metrics(
+        log=log, figures_dir=figures_dir, metric="mse", metric_text="Mean Squared Error (MSE)", use_log=use_log
+    )
 
 
-def plot_hd_shells(log: pd.DataFrame, figures_dir: str):
+def plot_hd_shells(log: pd.DataFrame, figures_dir: str, use_log: bool):
     """
     Plots the HD curves for both the train and eval values of the eval.log per epoch
 
     :param log pd.Dataframe: Dataframe containing the loss values
     :param figures_dir str: The directory of the run figures
+    :param use_log bool: Whether to use the log of the metric
     """
-    plot_shell_metrics(log=log, figures_dir=figures_dir, metric="hd", metric_text="Hausdorff Distance (HD)")
+    plot_shell_metrics(
+        log=log, figures_dir=figures_dir, metric="hd", metric_text="Hausdorff Distance (HD)", use_log=use_log
+    )
 
 
 def get_min_loss_metrics(log: pd.DataFrame) -> tuple[list[float], list[float]]:
@@ -267,6 +273,7 @@ if __name__ == "__main__":
     ap.add_argument("--names", default=[], nargs="+", help="Names of the runs")
     ap.add_argument("-m", "--modify", action="store_true", help="Modify the log files")
     ap.add_argument("--make_table", action="store_true", help="Whether to make a table of the metrics")
+    ap.add_argument("--use_log", action="store_true", help="Whether to use the log of the metric")
     args = ap.parse_args()
 
     min_loss_mses = []
@@ -287,8 +294,8 @@ if __name__ == "__main__":
             os.makedirs(figures_dir)
 
         plot_loss(log=eval_log, figures_dir=figures_dir)
-        plot_mse_shells(log=eval_log, figures_dir=figures_dir)
-        plot_hd_shells(log=eval_log, figures_dir=figures_dir)
+        plot_mse_shells(log=eval_log, figures_dir=figures_dir, use_log=args.use_log)
+        plot_hd_shells(log=eval_log, figures_dir=figures_dir, use_log=args.use_log)
 
         min_loss_mse, min_loss_hd = get_min_loss_metrics(eval_log)
         min_loss_mses.append(min_loss_mse)

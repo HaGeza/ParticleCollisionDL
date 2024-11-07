@@ -193,7 +193,7 @@ class HitSetGenerativeModel(nn.Module):
 
             if set_generator_type == HitSetGeneratorEnum.ADJUSTING:
                 self.set_generators.append(
-                    AdjustingSetGenerator(t, time_step, pairing_strategy_type, coordinate_system, device=device)
+                    AdjustingSetGenerator(t, time_step, pairing_strategy_type, coordinate_system)
                 )
             elif set_generator_type == HitSetGeneratorEnum.NONE:
                 self.set_generators.append(None)
@@ -373,6 +373,10 @@ class HitSetGenerativeModel(nn.Module):
         size = self.size_generators[t - 1].generate(z)
 
         used_size = torch.clamp(size.round().int(), min=self.min_size_to_generate)
+
+        if self.set_generators[t - 1] is None:
+            return size, torch.tensor([], device=self.device), used_size
+
         for b in range(used_size.size(0)):
             batch_item_size = used_size[b].sum().item()
             if batch_item_size > self.max_batch_size_to_generate:
