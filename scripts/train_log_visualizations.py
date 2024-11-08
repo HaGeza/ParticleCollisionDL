@@ -183,7 +183,7 @@ def plot_shell_metrics(log: pd.DataFrame, figures_dir: str, metric: str, metric_
                     dataset_avgs[value] = metric_log[metric_field]
                 else:
                     dataset_avgs[value] += metric_log[metric_field]
-            dataset_avgs[value] /= nr_shells - 1
+            dataset_avgs[value] /= nr_shells
             plt.xticks(range(skip_start, num_epochs, num_epochs // 10))
 
             create_fig(os.path.join(figures_dir, f"{metric_u}_per_shell_{value}_from_{skip_start}.png"))
