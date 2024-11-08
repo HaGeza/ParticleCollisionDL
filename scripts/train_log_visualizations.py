@@ -122,11 +122,41 @@ def plot_loss(log: pd.DataFrame, figures_dir: str):
     """
     epoch_field = TrainingRunIO.EPOCH_FIELD
     loss_field = TrainingRunIO.LOSS_FIELD
+    size_loss_field = TrainingRunIO.SIZE_LOSS_FIELD
+    set_loss_field = TrainingRunIO.SET_LOSS_FIELD
+
     loss_log = log.loc[:, [epoch_field, loss_field]]
+    size_loss_log = log.loc[:, [epoch_field, size_loss_field]]
+    set_loss_log = log.loc[:, [epoch_field, set_loss_field]]
 
     set_large_font_size()
     plt.figure(figsize=(10, 6))
-    plt.plot(loss_log[epoch_field], loss_log[loss_field], marker="o", color=COLOR_PALETTE[1], linewidth=LINE_WIDTH)
+    plt.plot(
+        loss_log[epoch_field],
+        loss_log[loss_field],
+        marker="o",
+        color=COLOR_PALETTE[1],
+        linewidth=LINE_WIDTH,
+        label="Total Loss",
+    )
+    plt.plot(
+        size_loss_log[epoch_field],
+        size_loss_log[size_loss_field],
+        marker="s",
+        color=COLOR_PALETTE[2],
+        linewidth=LINE_WIDTH,
+        label="Size Loss",
+    )
+    plt.plot(
+        set_loss_log[epoch_field],
+        set_loss_log[set_loss_field],
+        marker="*",
+        color=COLOR_PALETTE[3],
+        linewidth=LINE_WIDTH,
+        label="Set Loss",
+    )
+
+    plt.legend(title="Loss Type")
     # plt.title("Loss per Epoch")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
@@ -164,6 +194,10 @@ def plot_shell_metrics(log: pd.DataFrame, figures_dir: str, metric: str, metric_
         plt.savefig(save_path, dpi=300)
         plt.close()
 
+    # mse = (pred / s - gt / s) ^ 2
+    # mae = |pred / s - gt / s|
+    # mae_descaled = mae * s = |pred - gt| = sqrt(mse) * s
+
     for skip_start in [0, num_epochs // 10]:
         dataset_keys = ["train", "val"]
         dataset_avgs = {key: [] for key in dataset_keys}
@@ -186,7 +220,8 @@ def plot_shell_metrics(log: pd.DataFrame, figures_dir: str, metric: str, metric_
             dataset_avgs[value] /= nr_shells
             plt.xticks(range(skip_start, num_epochs, num_epochs // 10))
 
-            create_fig(os.path.join(figures_dir, f"{metric_u}_per_shell_{value}_from_{skip_start}.png"))
+            prefix = f"LOG_{metric_u}" if use_log else metric_u
+            create_fig(os.path.join(figures_dir, f"{prefix}_per_shell_{value}_from_{skip_start}.png"))
 
         set_medium_font_size()
         values = np.log10(dataset_avgs["train"]) if use_log else dataset_avgs["train"]
@@ -208,59 +243,42 @@ def plot_shell_metrics(log: pd.DataFrame, figures_dir: str, metric: str, metric_
             linewidth=LINE_WIDTH,
         )
         plt.xticks(range(skip_start, num_epochs, num_epochs // 10))
-        create_fig(os.path.join(figures_dir, f"{metric_u}_from_{skip_start}.png"))
+        prefix = f"LOG_{metric_u}" if use_log else metric_u
+        create_fig(os.path.join(figures_dir, f"{prefix}_from_{skip_start}.png"))
 
 
-def plot_mse_shells(log: pd.DataFrame, figures_dir: str, use_log: bool):
-    """
-    Plots the MSE curves for both the train and eval values of the eval.log per epoch
-
-    :param log pd.Dataframe: Dataframe containing the loss values
-    :param figures_dir str: The directory of the run figures
-    :param use_log bool: Whether to use the log of the metric
-    """
-    plot_shell_metrics(
-        log=log, figures_dir=figures_dir, metric="mse", metric_text="Mean Squared Error (MSE)", use_log=use_log
-    )
-
-
-def plot_hd_shells(log: pd.DataFrame, figures_dir: str, use_log: bool):
-    """
-    Plots the HD curves for both the train and eval values of the eval.log per epoch
-
-    :param log pd.Dataframe: Dataframe containing the loss values
-    :param figures_dir str: The directory of the run figures
-    :param use_log bool: Whether to use the log of the metric
-    """
-    plot_shell_metrics(
-        log=log, figures_dir=figures_dir, metric="hd", metric_text="Hausdorff Distance (HD)", use_log=use_log
-    )
-
-
-def get_min_loss_metrics(log: pd.DataFrame) -> tuple[list[float], list[float]]:
+def get_min_loss_metrics(log: pd.DataFrame) -> tuple[list[float], list[float], list[float]]:
     """
     Get the minimum loss metrics from the log file.
 
     :param log pd.DataFrame: Dataframe containing the loss values
-    :return tuple[list[float], list[float]]: Tuple of lists containing the min loss MSE and HD
+    :return tuple[list[float], list[float], list[float]]: Tuple of lists containing the min loss MSE, MAE and HD
     """
     min_loss_epoch = log.loc[log[TrainingRunIO.LOSS_FIELD].idxmin()][TrainingRunIO.EPOCH_FIELD]
     mse_fields = [col for col in log.columns if "mse_val_" in col]
+    mae_fields = [col for col in log.columns if "mae_val_" in col]
     hd_fields = [col for col in log.columns if "hd_val_" in col]
 
-    return (log.loc[min_loss_epoch, mse_fields].values.mean(), log.loc[min_loss_epoch, hd_fields].values.mean())
+    return (
+        log.loc[min_loss_epoch, mse_fields].values.mean(),
+        log.loc[min_loss_epoch, mae_fields].values.mean(),
+        log.loc[min_loss_epoch, hd_fields].values.mean(),
+    )
 
 
-def create_metrics_table(mses: list[float], hds: list[float], names: list[str], out_dir: str = RUNS_DIR):
+def create_metrics_table(
+    mses: list[float], maes: list[float], hds: list[float], names: list[str], out_dir: str = RUNS_DIR
+):
     """
     Create a table of the MSE and HD metrics for each run.
 
     :param mses list[float]: List of MSE metrics
+    :param maes list[float]: List of MAE metrics
     :param hds list[float]: List of HD metrics
     :param out_dir str: Output directory for the table
     """
-    data = {names[i]: [mses[i], hds[i]] for i in range(len(mses))}
-    df = pd.DataFrame(data, index=["MSE", "HD"])
+    data = {names[i]: [mses[i], maes[i], hds[i]] for i in range(len(mses))}
+    df = pd.DataFrame(data, index=["MSE", "MAE", "HD"])
 
     with open(os.path.join(out_dir, "metrics_table.tex"), "w") as f:
         f.write(df.to_latex())
@@ -277,6 +295,7 @@ if __name__ == "__main__":
     args = ap.parse_args()
 
     min_loss_mses = []
+    min_loss_maes = []
     min_loss_hds = []
 
     for run_id in args.run_ids:
@@ -293,17 +312,28 @@ if __name__ == "__main__":
         if not os.path.exists(figures_dir):
             os.makedirs(figures_dir)
 
-        plot_loss(log=eval_log, figures_dir=figures_dir)
-        plot_mse_shells(log=eval_log, figures_dir=figures_dir, use_log=args.use_log)
-        plot_hd_shells(log=eval_log, figures_dir=figures_dir, use_log=args.use_log)
+        # Add MAE
+        mses = [col for col in eval_log.columns if "mse_" in col]
+        for mse_col in mses:
+            mae_col = mse_col.replace("mse", "mae")
+            eval_log[mae_col] = np.sqrt(eval_log[mse_col]) * 10000
 
-        min_loss_mse, min_loss_hd = get_min_loss_metrics(eval_log)
+        plot_loss(log=eval_log, figures_dir=figures_dir)
+        plot_shell_metrics(eval_log, figures_dir, "mse", "Mean Squared Error (MSE)", args.use_log)
+        plot_shell_metrics(eval_log, figures_dir, "mae", "Mean Absolute Error (MAE)", args.use_log)
+        plot_shell_metrics(eval_log, figures_dir, "hd", "Hausdorff Distance (HD)", args.use_log)
+
+        min_loss_mse, min_loss_mae, min_loss_hd = get_min_loss_metrics(eval_log)
         min_loss_mses.append(min_loss_mse)
+        min_loss_maes.append(min_loss_mae)
         min_loss_hds.append(min_loss_hd)
 
     if args.make_table:
         print(f"Min loss MSE: {min_loss_mses}")
         print(f"Lowest MSE: {min(min_loss_mses)}, run id: {args.run_ids[min_loss_mses.index(min(min_loss_mses))]}")
+
+        print(f"Min loss MAE: {min_loss_maes}")
+        print(f"Lowest MAE: {min(min_loss_maes)}, run id: {args.run_ids[min_loss_maes.index(min(min_loss_maes))]}")
 
         print(f"Min loss HD: {min_loss_hds}")
         print(f"Lowest HD: {min(min_loss_hds)}, run id: {args.run_ids[min_loss_hds.index(min(min_loss_hds))]}")
@@ -312,4 +342,4 @@ if __name__ == "__main__":
         nr_runs = len(args.run_ids)
         if nr_names < nr_runs:
             args.names.extend(args.run_ids[nr_names:])
-        create_metrics_table(min_loss_mses, min_loss_hds, args.names)
+        create_metrics_table(min_loss_mses, min_loss_maes, min_loss_hds, args.names)
