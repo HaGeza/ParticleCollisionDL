@@ -25,7 +25,6 @@ class AdjustingSetGenerator(IHitSetGenerator):
         time_step: ITimeStepForAdjusting,
         pairing_strategy_type: PairingStrategyEnum,
         coordinate_system: CoordinateSystemEnum,
-        _device: str = "cpu",
     ):
         """
         Constructor for the adjusting set generator.
@@ -36,7 +35,6 @@ class AdjustingSetGenerator(IHitSetGenerator):
         :param PairingStrategyEnum pairing_strategy_type: Pairing strategy to use.
         :param int encoding_dim: Dimension of the encoding.
         :param int hit_dim: Dimension of the hit.
-        :param str device: Device to load the data on.
         """
 
         super().__init__()

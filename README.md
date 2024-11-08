@@ -1,6 +1,7 @@
 # 2AMM40 Particle Tracking - Group 4
 
-This repository contains code for the Final Report of Group 4 for the course 2AMM40.
+This repository contains code for the [Final Report](uploads/728fc5b720b27c8b239dbcfa77dc5722/FinalReport.pdf)
+of Group 4 for the course 2AMM40.
 
 ## Running the Project
 
@@ -64,9 +65,11 @@ The models described in the paper were run using the following parameters:
 
 
 The visuals and (contents of) tables used for model comparison were produced using `scripts/train_log_visualizations.py`.
-To reproduce them, unzip the contents of `runs/runs.zip` and run the script with:
+To reproduce them, unzip the contents of `runs/runs.zip` and run the following:
 ```sh
-python scripts/train_log_visualizations.py -i 1zxoi65f 38hyf9sx ak1vrjnv b9m80o2r r9oudocu rek8pk3y
+python scripts/train_log_visualizations.py -i 1zxoi65f 38hyf9sx ak1vrjnv b9m80o2r r9oudocu rek8pk3y --make_table
+python scripts/train_log_visualizations.py -i f1cbfno6
+python scripts/train_log_visualizations.py -i 38hyf9sx --use_log
 ```
 
 The visuals used for analyzing the best model (38hyf9sx) and for hit-cloud visualization were generated with
@@ -123,12 +126,12 @@ Focusing on the `src` directory, we have the following structure:
     │   │   ├── LocalGNNProcessor.py            │ <- GNN
     │   │   └── PointNetProcessor.py            │ <- PointNet
     │   └── HitSetSizeGenerator                 │ <- Size generators
-    │       ├── GaussianSizeGenerator.py        │
+    │       ├── GaussianSizeGenerator.py        │ <- Gaussian size generator (used in the report)
     │       ├── HitSetSizeGeneratorEnum.py      │
     │       └── IHitSetSizeGenerator.py         │
     ├── Pairing                                 │ <- Strategies for pairing hits
     │   ├── GreedyStrategy.py                   │
-    │   ├── HungarianAlgorithmStrategy.py       │ <- Hungarian pairing (the one used in the report)
+    │   ├── HungarianAlgorithmStrategy.py       │ <- Hungarian pairing (used in the report)
     │   ├── IPairingStrategy.py                 │
     │   ├── PairingStrategyEnum.py              │
     │   ├── RepeatedKDTreeStrategy.py           │
@@ -137,10 +140,10 @@ Focusing on the `src` directory, we have the following structure:
     │   ├── ForAdjusting                        │ <- Time steps with support for adjusting set generation
     │   │   ├── ITimeStepForAdjusting.py        │
     │   │   ├── PlacementStrategy               │ <- Strategies for placing hits
-    │   │   │   ├── EquidistantStrategy.py      │ <- Equidistant placement (the one used in the report)
+    │   │   │   ├── EquidistantStrategy.py      │ <- Equidistant placement (used in the report)
     │   │   │   ├── IPlacementStrategy.py       │
     │   │   │   ├── PlacementStrategyEnum.py    │
-    │   │   │   └── SinusoidStrategy.py         │ <- Sinusoidal placement (the one used in the mid-term report)
+    │   │   │   └── SinusoidStrategy.py         │ <- Sinusoidal placement (used in the interim report)
     │   │   ├── PrecomputedTimeStep.py          │ <- Wrapper for time steps when precomputed data is used (used in the report)
     │   │   └── VolumeLayer                     │ <- Volume-layer based time-step definition specific
     │   │       ├── VLMaps.py                   │
