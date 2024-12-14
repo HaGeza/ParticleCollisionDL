@@ -1,3 +1,7 @@
+## Disclaimer for GitHub version
+
+*Note*: [GitLab hosted by TU/e](https://gitlab.tue.nl/users/sign_in) was used to develop this project between September-November 2024, as a part of the course "Advanced Topics in AI (2AMM40)", by group 4, consisting of Balázs Pelok (me), Mathieu-van-Luijken and Tom Harmsen. The link to the final report found below does not work on GitHub, instead the reports can be found in this [Release](https://github.com/HaGeza/ParticleCollisionDL/releases/tag/v1).
+
 # 2AMM40 Particle Tracking - Group 4
 
 This repository contains code for the [Final Report](uploads/728fc5b720b27c8b239dbcfa77dc5722/FinalReport.pdf)
